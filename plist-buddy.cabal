@@ -16,7 +16,7 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Database.Plistbuddy.Shell
+  exposed-modules:     Database.PlistBuddy.Shell
   -- other-modules:       
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.8 && <4.9, mtl >=2.2 && <2.3, process >=1.4 && <1.5
