@@ -14,7 +14,12 @@ Clear type |  Clears out all existing entries, and creates root of type type.  S
 Print [entry] |  Prints value of entry.  If an entry is not specified, prints entire file. See below for an explanation of how entry works.
 Set entry value | Sets the value at entry to value.
 Add entry type [value] | Adds entry with type type and optional value value.  See below for a list of types.
-Copy entrySrc entryDst | Copies the entrySrc property to entryDst.
 Delete entry | Deletes entry from the plist.
+
+Not supported (yet)
+
+Command | Notes
+--------|---------- 
+Copy entrySrc entryDst | Copies the entrySrc property to entryDst.
 Merge file [entry] | Adds the contents of plist file to entry.
 Import entry file  | Creates or sets entry to the contents of file.
