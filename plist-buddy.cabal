@@ -3,22 +3,27 @@
 
 name:                plist-buddy
 version:             0.1.0.0
--- synopsis:            
--- description:         
+synopsis:            Remote monad for editing plists
+description:         Remote monad wrapper around the plistbuddy shell command for editing plists
 license:             BSD2
 license-file:        LICENSE
 author:              Andy Gill
 maintainer:          andygill@ku.edu
--- copyright:           
--- category:            
+copyright:           (c) 2015 Andy Gill
+category:            Database
 build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Database.PlistBuddy.Shell
+  exposed-modules:     Database.PlistBuddy
   -- other-modules:       
   other-extensions:    GeneralizedNewtypeDeriving
-  build-depends:       base >=4.8 && <4.9, mtl >=2.2 && <2.3, process >=1.4 && <1.5
+  build-depends:       base >=4.7 && <4.9
+                     , bytestring == 0.10.*
+                     , mtl >=2.2 && <2.3
+                     , process >=1.2 && <1.5
+                     , posix-pty == 0.2.*
+                     , text      == 1.2.*
   hs-source-dirs:      src
   default-language:    Haskell2010
