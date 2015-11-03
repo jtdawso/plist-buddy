@@ -1,11 +1,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving, OverloadedStrings #-}
 module Database.PlistBuddy where
 
+import Control.Monad
 import Control.Monad.Reader
 
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
-import Data.List
+import Data.List ()
 import Data.Monoid ((<>))
 
 import System.Process
@@ -25,30 +26,45 @@ spawnPlistBuddy fileName = do
                     (80,24)
     attr <- getTerminalAttributes pty
     setTerminalAttributes pty (attr `withoutMode` EnableEcho) Immediately
+    _ <- recvReply pty
     return (pty,ph)        
 
 command :: Pty -> ByteString -> IO ByteString
 command pty input = do
-        writePty pty input
+        when (not $ BS.null input) $  writePty pty input -- quirk of pty's?
         writePty pty "\n"
-        txt <- readPty pty 
-        loop txt
+        recvReply pty
+
+recvReply :: Pty -> IO ByteString
+recvReply pty = readMe []
   where
-    prompt = "\nCommand: "
+    prompt = "\r\nCommand: "
 
-    loop txt | prompt `BS.isSuffixOf` txt
-             = return txt 
-             | otherwise
-             = do
-                  print txt
-                  txt' <- readPty pty
-                  loop (txt <> txt')                     
-{-            
-            print txt
+    readMe rbs = do
+            t <- readPty pty
+            print t
+            testMe (t : rbs)
 
-            loop txt
+    testMe rbs | prompt `isSuffixOf` rbs
+               = let bs = rbsToByteString rbs 
+                 in return $ BS.take (BS.length bs - BS.length prompt) bs
+               | otherwise
+               = readMe rbs
 
+type RBS = [ByteString] -- reversed list of strict bytestring
+
+rbsToByteString :: RBS -> ByteString
+rbsToByteString = BS.concat . reverse
+          
+isSuffixOf :: ByteString -> RBS -> Bool
+isSuffixOf bs rbs = bs `BS.isSuffixOf` rbsToByteString rbs
+
+{-
+xs = prompt `BS.isSuffixOf` BS.concat (reverse xs)
+-  where
+    prompt = "\nCommand: "          
 -}
+
 {-
 Command $ do
     ExecDevice hin hout <- ask
