@@ -118,6 +118,33 @@ main = do
                 "        X = 99\n" <>
                 "    }\n" <>
                 "    S2 = Hello\n}"
+        a1 <- send d $ get ["A1"]
+        check "get array" a1 $                
+                "Array {\n" <>
+                "    4\n" <>
+                "    2\n" <>
+                "    3\n" <>
+                "}"
+
+        a2 <- send d $ get ["A1","1"]
+        check "get array value" a2 $                
+                "2"
+
+        d1 <- send d $ get ["D1"]
+        check "get dict" d1 $                
+                "Dict {\n" <>
+                "    X = 99\n" <>
+                "}"
+
+        d2 <- send d $ get ["D1","X"]
+        check "get dict value" d2 $                
+                "99"
+
+        _ <- send d $ set ["D1","X"] "3432"
+        d3 <- send d $ get ["D1","X"]
+        check "get dict value (2)" d3 $                
+                "3432"
+
         _ <- send d $ delete ["D1"]
         r10 <- send d $ get []
         check "dict with dict removed" r10 $
