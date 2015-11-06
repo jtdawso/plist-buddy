@@ -13,15 +13,15 @@ main = do
         r0 <- send d $ get []
         check "initial dict" r0 $ Dict []
 
-        _ <- send d $ clear ARRAY
+        _ <- send d $ clear (Array [])
         r1 <- send d $ get []
         check "reset as an array" r1 $ Array []
 
-        _ <- send d $ clear DICT
+        _ <- send d $ clear (Dict [])
         r2 <- send d $ get []
         check "reset as a dict" r2 $ Dict []
 
-        _ <- send d $ clear ARRAY
+        _ <- send d $ clear (Array [])
         r3 <- send d $ get []
         check "reset as an array (2)" r3 $ Array []
         send d $ exit
@@ -31,7 +31,7 @@ main = do
         r0 <- send d $ get []
         check "initial dict still there" r0 $ Dict []    
 
-        _ <- send d $ clear ARRAY
+        _ <- send d $ clear (Array [])
         r5 <- send d $ get []
         check "reset as an array (3)" r5 $ Array []
 
@@ -43,7 +43,7 @@ main = do
         r6 <- send d $ get []
         check "array after save" r6 $ Array []
         
-        _ <- send d $ clear DICT
+        _ <- send d $ clear (Dict [])
         r7 <- send d $ get []
         check "change to dict" r7 $ Dict []
 
@@ -52,7 +52,7 @@ main = do
         r8 <- send d $ get []
         check "array after save" r8 $ Array []
         
-        _ <- send d $ clear DICT 
+        _ <- send d $ clear (Dict []) 
         r9 <- send d $ get []
         check "change to dict" r9 $ Dict []
 

@@ -86,14 +86,21 @@ revert = PlistBuddy $ do
           "Reverting to last saved state..." -> return ()
           _ -> fail $ "revert failed: " ++ show res
 
--- | Clear Type - Clears out all existing entries, and creates root of Type
-clear :: TYPE -> PlistBuddy ()
-clear ty = PlistBuddy $ do
+-- | Clear Type - Clears out all existing entries, and creates root of a value,
+-- where the value is an empty Dict or Array.
+clear :: Value -> PlistBuddy ()
+clear value = PlistBuddy $ do
         Plist pty _ <- ask
-        res <- liftIO $ command pty $ "Clear " <> E.encodeUtf8 (typeText ty)
+        ty <- case value of
+                     Array [] -> return $ quoteValueType value
+                     Array _  -> fail "add: array not empty"
+                     Dict []  -> return $ quoteValueType value
+                     Dict _   -> fail "add: dict not empty"
+                     _        -> fail "adding a non dict/array to the root path"
+        res <- liftIO $ command pty $ "Clear " <> ty
         case res of
           "Initializing Plist..." -> return ()
-          _  -> fail $ "clear failed: " ++ show res
+          _  -> fail $ "add failed: " ++ show res
 
 -- | Print Entry - Gets value of Entry.  Otherwise, gets file 
 get :: [Text] -> PlistBuddy (Maybe Value)
@@ -150,6 +157,7 @@ get entry = PlistBuddy $ do
 -- | Set Entry Value - Sets the value at Entry to Value
 -- You can not set dictionaries or arrays.
 set :: [Text] -> Value -> PlistBuddy ()
+set []    value = PlistBuddy $ fail "Can not set empty path"
 set entry value = PlistBuddy $ do
         Plist pty _ <- ask
         res <- liftIO $ command pty $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
@@ -161,6 +169,7 @@ set entry value = PlistBuddy $ do
 -- | Add Entry Type [Value] - Adds Entry to the plist, with value Value
 -- You can add *empty* dictionaries or arrays.
 add :: [Text] -> Value -> PlistBuddy ()
+add [] value = PlistBuddy $ fail "Can not add to an empty path"
 add entry value = PlistBuddy $ do
         Plist pty _ <- ask
         suffix <- case value of
