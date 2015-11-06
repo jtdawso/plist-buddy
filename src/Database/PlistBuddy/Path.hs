@@ -13,6 +13,7 @@ data Path :: * -> * where
  IndexPath   :: Int  -> Path a -> Path a
  ZipPath     :: Path a -> Path b -> Path (a,b)
 
+
 getPath :: Path a -> PlistBuddy a
 getPath = getPath' []
  where
@@ -29,13 +30,26 @@ getPath = getPath' []
            return $ (v1,v2)
 
 --setPath :: Path a -> a -> IO ()
---
+setPath :: Path a -> a -> PlistBuddy ()
+setPath = setPath' []
+ where
+   setPath' :: [Text] -> Path a -> a -> PlistBuddy ()
+   setPath' path IntegerPath v | not (null path) = do
+         set (reverse path) (Integer v)
+   setPath' path (ElementPath e p) v = setPath' (e : path) p v
+   setPath' path (ZipPath p1 p2) (v1,v2) = do
+           setPath' path p1 v1
+           setPath' path p2 v2
 
 test1 = do
         d <- openPlist "test.plist" 
         v <- send d (getPath (ElementPath "I2" $ IntegerPath ))
         print v
-        v <- send d (getPath (ZipPath (ElementPath "I1" $ IntegerPath)
-                                      (ElementPath "I2" $ IntegerPath)))
+        let p1 = ZipPath (ElementPath "I1" $ IntegerPath)
+                         (ElementPath "I2" $ IntegerPath)
+        v <- send d (getPath p1)
+        print v
+        send d (setPath p1 (99,100))
+        v <- send d (getPath p1)
         print v
                                  
