@@ -17,6 +17,7 @@ module Database.PlistBuddy
         , delete
         -- * Other types
         , TYPE(..)
+        , Value(..)
         ) where
 
 import Control.Concurrent
@@ -36,6 +37,7 @@ import System.Process
 import System.IO
 import System.Posix.Pty
 
+import Text.XML.Light
 
 ------------------------------------------------------------------------------
 
@@ -94,19 +96,63 @@ clear ty = PlistBuddy $ do
           _  -> fail $ "clear failed: " ++ show res
 
 -- | Print Entry - Gets value of Entry.  Otherwise, gets file 
-get :: [Text] -> PlistBuddy Text
+get :: [Text] -> PlistBuddy (Maybe Value)
 get entry = PlistBuddy $ do
         Plist pty _ <- ask
         res <- liftIO $ command pty $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
         -- idea: print in XML (-x flag), and decode in more detail
-        return $ T.filter (/= '\r') $ E.decodeUtf8 res
+        case parseXMLDoc res of
+          Nothing -> return Nothing
+          Just (Element _ _ xml _) -> return $ parse (onlyElems xml)
+  where
+        parse :: [Element] -> Maybe Value
+        parse [] = Nothing
+        parse (Element nm attr cs _:_) = 
+                        case showQName nm of
+                          "integer" -> Integer <$> parseInteger cs
+                          "string"  -> String  <$> parseString cs
+                          "dict"    -> Dict    <$> parseDict cs
+                          "array"   -> Array   <$> parseArray cs
+                          x -> error $ show ("other",x,cs)
+
+        parseInteger :: [Content] -> Maybe Integer
+        parseInteger = return . read . concatMap showContent 
+
+        -- "\t" messes up
+        parseString :: [Content] -> Maybe Text
+        parseString = return . T.pack . concatMap showContent 
+
+        parseDict :: [Content] -> Maybe [(Text,Value)]
+        parseDict cs = parseDict' (onlyElems cs)
+          where
+                  parseDict' :: [Element] -> Maybe [(Text,Value)]
+                  parseDict' [] = return []
+                  parseDict' (Element nm attr cs _
+                             : e
+                             : rest) | showQName nm == "key"
+                     = do v <- parse [e]
+                          ivs <- parseDict' rest
+                          return $ (T.pack $ concatMap showContent $ cs, v) : ivs
+                  parseDict' _ = Nothing
+
+        parseArray :: [Content] -> Maybe [Value]
+        parseArray cs = parseArray' (onlyElems cs)
+          where
+                  parseArray' :: [Element] -> Maybe [Value]
+                  parseArray' [] = return []
+                  parseArray' (e : rest)
+                     = do v <- parse [e]
+                          vs <- parseArray' rest
+                          return $ v : vs
+                  parseDict' _ = Nothing
+
 
 -- | Set Entry Value - Sets the value at Entry to Value
-set :: [Text] -> Text -> PlistBuddy ()
+set :: [Text] -> Value -> PlistBuddy ()
 set entry value = PlistBuddy $ do
         Plist pty _ <- ask
         res <- liftIO $ command pty $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
-                                      <> " " <> quote value
+                                      <> " " <> quoteValue value 
         case res of
           "" -> return ()
           _  -> fail $ "set failed: " ++ show res
@@ -150,6 +196,36 @@ quote q = "'" <> BS.concatMap esc (E.encodeUtf8 q) <> "'"
 data TYPE = STRING | ARRAY | DICT | BOOL | REAL | INTEGER | DATE | DATA
         deriving (Eq, Ord)
 
+data Value  = String Text
+            | Array [Value]       
+            | Dict [(Text,Value)] 
+            | Bool Bool
+            | Real Double
+            | Integer Integer
+            | Date ()
+            | Data ()
+        deriving (Show, Read, Eq, Ord)
+
+quoteValue :: Value -> ByteString
+quoteValue (String txt) = quote txt
+quoteValue (Array {})   = error "array value"
+quoteValue (Dict {})    = error "dict value"
+quoteValue (Bool True)  = "true"
+quoteValue (Bool False) = "false"
+quoteValue (Real r)     = E.encodeUtf8 $ T.pack $ show r
+quoteValue (Integer i)  = E.encodeUtf8 $ T.pack $ show i
+quoteValue other        = error $ show other ++ " not supported"
+
+quoteValueType :: Value -> ByteString
+quoteValueType (String txt) = "string"
+quoteValueType (Array {})   = "array"
+quoteValueType (Dict {})    = "dict"
+quoteValueType (Bool True)  = "bool"
+quoteValueType (Bool False) = "bool"
+quoteValueType (Real r)     = "real"
+quoteValueType (Integer i)  = "integer"
+quoteValueType other        = error $ show other ++ " not supported"
+
 typeText:: TYPE -> Text
 typeText STRING = "string"
 typeText ARRAY  = "array"
@@ -168,7 +244,7 @@ openPlist fileName = do
                     Nothing
                     False
                     "/usr/libexec/PlistBuddy"
-                    [fileName]
+                    ["-x",fileName]
                     (80,24)
     attr <- getTerminalAttributes pty
     setTerminalAttributes pty (attr `withoutMode` EnableEcho) Immediately

@@ -11,29 +11,29 @@ main = do
         d <- openPlist "test.plist"
 
         r0 <- send d $ get []
-        check "initial dict" r0 $ "Dict {\n}"
+        check "initial dict" r0 $ Dict []
 
         _ <- send d $ clear ARRAY
         r1 <- send d $ get []
-        check "reset as an array" r1 $ "Array {\n}"
+        check "reset as an array" r1 $ Array []
 
         _ <- send d $ clear DICT
         r2 <- send d $ get []
-        check "reset as a dict" r2 $ "Dict {\n}"
+        check "reset as a dict" r2 $ Dict []
 
         _ <- send d $ clear ARRAY
         r3 <- send d $ get []
-        check "reset as an array (2)" r3 $ "Array {\n}"
+        check "reset as an array (2)" r3 $ Array []
         send d $ exit
 
         d <- openPlist "test.plist"
 
         r0 <- send d $ get []
-        check "initial dict still there" r0 $ "Dict {\n}"        
+        check "initial dict still there" r0 $ Dict []    
 
         _ <- send d $ clear ARRAY
         r5 <- send d $ get []
-        check "reset as an array (3)" r5 $ "Array {\n}"
+        check "reset as an array (3)" r5 $ Array []
 
         send d $ save
         send d $ exit
@@ -41,156 +41,151 @@ main = do
         d <- openPlist "test.plist"        
         
         r6 <- send d $ get []
-        check "array after save" r6 $ "Array {\n}"
+        check "array after save" r6 $ Array []
         
         _ <- send d $ clear DICT
         r7 <- send d $ get []
-        check "change to dict" r7 $ "Dict {\n}"        
+        check "change to dict" r7 $ Dict []
 
         send d $ revert -- should revert to the array
 
         r8 <- send d $ get []
-        check "array after save" r8 $ "Array {\n}"
+        check "array after save" r8 $ Array []
         
         _ <- send d $ clear DICT 
         r9 <- send d $ get []
-        check "change to dict" r9 $ "Dict {\n}"    
+        check "change to dict" r9 $ Dict []
 
         _ <- send d $ add ["S1"] STRING Nothing
         _ <- send d $ add ["S2"] STRING (Just "Hello")
         _ <- send d $ add ["I1"] INTEGER Nothing
         _ <- send d $ add ["I2"] INTEGER (Just "123")
         r10 <- send d $ get []
-        check "dict with 4 entries" r10 $ 
-                "Dict {\n" <>
-                "    S1 = \n" <>
-                "    I2 = 123\n" <>
-                "    I1 = 0\n" <>
-                "    S2 = Hello\n}"
+        check "dict with 4 entries" r10 $ Dict 
+                [("I1",Integer 0)
+                ,("I2",Integer 123)
+                ,("S1",String "")
+                ,("S2",String "Hello")
+                ]
 
         _ <- send d $ add ["D1"] DICT Nothing
         _ <- send d $ add ["A1"] ARRAY Nothing
         r10 <- send d $ get []
-        check "dict with 6 entries" r10 $  
-                "Dict {\n" <>
-                "    A1 = Array {\n" <>
-                "    }\n" <>
-                "    S1 = \n" <>
-                "    I2 = 123\n" <>
-                "    I1 = 0\n" <>
-                "    D1 = Dict {\n" <>
-                "    }\n" <>
-                "    S2 = Hello\n}"
+        check "dict with 6 entries" r10 $ Dict 
+                [("A1",Array[])
+                ,("D1",Dict[])
+                ,("I1",Integer 0)
+                ,("I2",Integer 123)
+                ,("S1",String "")
+                ,("S2",String "Hello")
+                ]
+
         _ <- send d $ add ["D1","X"] INTEGER (Just "99")
         _ <- send d $ add ["A1",""] INTEGER (Just "1") -- add at end
         _ <- send d $ add ["A1",""] INTEGER (Just "2")  -- add at end
         _ <- send d $ add ["A1","2"] INTEGER (Just "3") -- add at end
         _ <- send d $ add ["A1","0"] INTEGER (Just "4") -- add at start
         r10 <- send d $ get []
-        check "dict with 11 entries" r10 $
-                "Dict {\n" <>
-                "    A1 = Array {\n" <>
-                "        4\n" <>
-                "        1\n" <>
-                "        2\n" <>
-                "        3\n" <>
-                "    }\n" <>
-                "    S1 = \n" <>
-                "    I2 = 123\n" <>
-                "    I1 = 0\n" <>
-                "    D1 = Dict {\n" <>
-                "        X = 99\n" <>
-                "    }\n" <>
-                "    S2 = Hello\n}"
+
+        check "dict with 11 entries" r10 $  Dict 
+                [("A1",Array 
+                        [Integer 4
+                        ,Integer 1
+                        ,Integer 2
+                        ,Integer 3])
+                ,("D1",Dict
+                        [("X",Integer 99)
+                        ])
+                ,("I1",Integer 0)
+                ,("I2",Integer 123)
+                ,("S1",String "")
+                ,("S2",String "Hello")
+                ]
+
         _ <- send d $ delete ["A1","1"] 
         r10 <- send d $ get []
-        check "dict with 10 entries" r10 $
-                "Dict {\n" <>
-                "    A1 = Array {\n" <>
-                "        4\n" <>
-                "        2\n" <>
-                "        3\n" <>
-                "    }\n" <>
-                "    S1 = \n" <>
-                "    I2 = 123\n" <>
-                "    I1 = 0\n" <>
-                "    D1 = Dict {\n" <>
-                "        X = 99\n" <>
-                "    }\n" <>
-                "    S2 = Hello\n}"
+        check "dict with 10 entries" r10 $ Dict
+                [("A1",Array 
+                        [Integer 4
+                        ,Integer 2
+                        ,Integer 3])
+                ,("D1",Dict
+                        [("X",Integer 99)
+                        ])
+                ,("I1",Integer 0)
+                ,("I2",Integer 123)
+                ,("S1",String "")
+                ,("S2",String "Hello")
+                ]
+
         a1 <- send d $ get ["A1"]
-        check "get array" a1 $                
-                "Array {\n" <>
-                "    4\n" <>
-                "    2\n" <>
-                "    3\n" <>
-                "}"
+        check "get array" a1 $  Array 
+                        [Integer 4
+                        ,Integer 2
+                        ,Integer 3]
 
         a2 <- send d $ get ["A1","1"]
         check "get array value" a2 $                
-                "2"
+                Integer 2
 
         d1 <- send d $ get ["D1"]
-        check "get dict" d1 $                
-                "Dict {\n" <>
-                "    X = 99\n" <>
-                "}"
+        check "get dict" d1 $ Dict              
+                [("X",Integer 99)
+                ]
 
         d2 <- send d $ get ["D1","X"]
         check "get dict value" d2 $                
-                "99"
+                Integer 99
 
-        _ <- send d $ set ["D1","X"] "3432"
+        _ <- send d $ set ["D1","X"] (Integer 3432)
         d3 <- send d $ get ["D1","X"]
         check "get dict value (2)" d3 $                
-                "3432"
+                Integer 3432
 
         _ <- send d $ delete ["D1"]
         r10 <- send d $ get []
-        check "dict with dict removed" r10 $
-                "Dict {\n" <>
-                "    A1 = Array {\n" <>
-                "        4\n" <>
-                "        2\n" <>
-                "        3\n" <>
-                "    }\n" <>
-                "    S1 = \n" <>
-                "    I2 = 123\n" <>
-                "    I1 = 0\n" <>
-                "    S2 = Hello\n}"
+        check "dict with dict removed" r10 $ Dict
+                [("A1",Array 
+                        [Integer 4
+                        ,Integer 2
+                        ,Integer 3])
+                ,("I1",Integer 0)
+                ,("I2",Integer 123)
+                ,("S1",String "")
+                ,("S2",String "Hello")
+                ]
 
-        _ <- send d $ set ["A1","2"] "1234"
+        _ <- send d $ set ["A1","2"] (Integer 1234)
         r10 <- send d $ get []
-        check "testing set" r10 $
-                "Dict {\n" <>
-                "    A1 = Array {\n" <>
-                "        4\n" <>
-                "        2\n" <>
-                "        1234\n" <>
-                "    }\n" <>
-                "    S1 = \n" <>
-                "    I2 = 123\n" <>
-                "    I1 = 0\n" <>
-                "    S2 = Hello\n}"
+        check "testing set" r10 $ Dict
+                [("A1",Array 
+                        [Integer 4
+                        ,Integer 2
+                        ,Integer 1234])
+                ,("I1",Integer 0)
+                ,("I2",Integer 123)
+                ,("S1",String "")
+                ,("S2",String "Hello")
+                ]
         _ <- send d $ save
         _ <- send d $ exit
+        return ()
+
         d <- openPlist "test.plist"
 
         r0 <- send d $ get []
-        check "updated dict still there" r0 $   
-                "Dict {\n" <>
-                "    S1 = \n" <>
-                "    S2 = Hello\n" <>
-                "    I1 = 0\n" <>
-                "    A1 = Array {\n" <>
-                "        4\n" <>
-                "        2\n" <>
-                "        1234\n" <>
-                "    }\n" <>
-                "    I2 = 123\n}"
+        check "updated dict still there" r0 $   Dict
+                [("A1",Array 
+                        [Integer 4
+                        ,Integer 2
+                        ,Integer 1234])
+                ,("I1",Integer 0)
+                ,("I2",Integer 123)
+                ,("S1",String "")
+                ,("S2",String "Hello")
+                ]
         
 
-                        
-check :: Text -> Text -> Text -> IO ()
-check msg t1 t2 = if t1 /= t2 then fail ("check failed: " ++ show (msg,t1,t2)) else TIO.putStrLn msg
-        
+
+check :: Text -> Maybe Value -> Value -> IO ()
+check msg t1 t2 = if t1 /= Just t2 then fail ("check failed: " ++ show (msg,t1,t2)) else TIO.putStrLn msg
