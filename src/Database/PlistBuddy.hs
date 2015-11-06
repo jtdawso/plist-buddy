@@ -16,7 +16,6 @@ module Database.PlistBuddy
         , add
         , delete
         -- * Other types
-        , TYPE(..)
         , Value(..)
         ) where
 
@@ -211,9 +210,6 @@ quote q = "'" <> BS.concatMap esc (E.encodeUtf8 q) <> "'"
         
 ------------------------------------------------------------------------------
 
-data TYPE = STRING | ARRAY | DICT | BOOL | REAL | INTEGER | DATE | DATA
-        deriving (Eq, Ord)
-
 data Value  = String Text
             | Array [Value]       
             | Dict [(Text,Value)] 
@@ -243,16 +239,6 @@ quoteValueType (Bool False) = "bool"
 quoteValueType (Real r)     = "real"
 quoteValueType (Integer i)  = "integer"
 quoteValueType other        = error $ show other ++ " not supported"
-
-typeText:: TYPE -> Text
-typeText STRING = "string"
-typeText ARRAY  = "array"
-typeText DICT   = "dict"
-typeText BOOL   = "bool"
-typeText REAL   = "real"
-typeText INTEGER = "integer"
-typeText DATE   = "date"
-typeText DATA   = "data"
 
 ------------------------------------------------------------------------------
 
