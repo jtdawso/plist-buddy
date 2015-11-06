@@ -56,10 +56,10 @@ main = do
         r9 <- send d $ get []
         check "change to dict" r9 $ Dict []
 
-        _ <- send d $ add ["S1"] STRING Nothing
-        _ <- send d $ add ["S2"] STRING (Just "Hello")
-        _ <- send d $ add ["I1"] INTEGER Nothing
-        _ <- send d $ add ["I2"] INTEGER (Just "123")
+        _ <- send d $ add ["S1"] (String "")
+        _ <- send d $ add ["S2"] (String "Hello")
+        _ <- send d $ add ["I1"] (Integer 0)
+        _ <- send d $ add ["I2"] (Integer 123)
         r10 <- send d $ get []
         check "dict with 4 entries" r10 $ Dict 
                 [("I1",Integer 0)
@@ -68,8 +68,8 @@ main = do
                 ,("S2",String "Hello")
                 ]
 
-        _ <- send d $ add ["D1"] DICT Nothing
-        _ <- send d $ add ["A1"] ARRAY Nothing
+        _ <- send d $ add ["D1"] (Dict [])
+        _ <- send d $ add ["A1"] (Array [])
         r10 <- send d $ get []
         check "dict with 6 entries" r10 $ Dict 
                 [("A1",Array[])
@@ -80,11 +80,11 @@ main = do
                 ,("S2",String "Hello")
                 ]
 
-        _ <- send d $ add ["D1","X"] INTEGER (Just "99")
-        _ <- send d $ add ["A1",""] INTEGER (Just "1") -- add at end
-        _ <- send d $ add ["A1",""] INTEGER (Just "2")  -- add at end
-        _ <- send d $ add ["A1","2"] INTEGER (Just "3") -- add at end
-        _ <- send d $ add ["A1","0"] INTEGER (Just "4") -- add at start
+        _ <- send d $ add ["D1","X"] (Integer 99)
+        _ <- send d $ add ["A1",""] (Integer 1) -- add at end
+        _ <- send d $ add ["A1",""] (Integer 2)  -- add at end
+        _ <- send d $ add ["A1","2"] (Integer 3) -- add at end
+        _ <- send d $ add ["A1","0"] (Integer 4) -- add at start
         r10 <- send d $ get []
 
         check "dict with 11 entries" r10 $  Dict 

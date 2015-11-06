@@ -148,6 +148,7 @@ get entry = PlistBuddy $ do
 
 
 -- | Set Entry Value - Sets the value at Entry to Value
+-- You can not set dictionaries or arrays.
 set :: [Text] -> Value -> PlistBuddy ()
 set entry value = PlistBuddy $ do
         Plist pty _ <- ask
@@ -158,12 +159,20 @@ set entry value = PlistBuddy $ do
           _  -> fail $ "set failed: " ++ show res
     
 -- | Add Entry Type [Value] - Adds Entry to the plist, with value Value
-add :: [Text] -> TYPE -> Maybe Text -> PlistBuddy ()
-add entry ty optValue = PlistBuddy $ do
+-- You can add *empty* dictionaries or arrays.
+add :: [Text] -> Value -> PlistBuddy ()
+add entry value = PlistBuddy $ do
         Plist pty _ <- ask
+        suffix <- case value of
+                     Array [] -> return ""
+                     Array _ -> fail "add: array not empty"
+                     Dict [] -> return ""
+                     Dict _ -> fail "add: array not empty"
+                     _ -> return $ " " <> quoteValue value
+
         res <- liftIO $ command pty $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
-                                      <>  " " <> E.encodeUtf8 (typeText ty)
-                                      <> maybe "" (\ v -> " " <> quote v) optValue
+                                      <> " " <> quoteValueType value
+                                      <> suffix
         case res of
           "" -> return ()
           _  -> fail $ "add failed: " ++ show res
