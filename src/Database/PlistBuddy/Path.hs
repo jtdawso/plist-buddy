@@ -3,7 +3,6 @@ module Database.PlistBuddy.Path
         ( Path
         , integer
         , string 
-        , (<#>)
         , (<.>)  
         , (<+>)  
         , fgmap  
@@ -11,6 +10,7 @@ module Database.PlistBuddy.Path
         , setPath
         ) where
 
+import Data.Char
 import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Monoid ((<>))
@@ -22,13 +22,11 @@ data Path :: * -> * where
  IntegerPath :: Path Integer
  StringPath :: Path Text
  ElementPath :: Text -> Path a -> Path a
- IndexPath   :: Int  -> Path a -> Path a
  ZipPath     :: Path a -> Path b -> Path (a,b)
  MapPath   :: (a -> b) -> (b -> a) -> Path a -> Path b
 
 infixr 3 <+>
 infixr 9 <.>
-infixr 9 <#>
 
 integer :: Path Integer
 integer = IntegerPath
@@ -36,8 +34,6 @@ string  :: Path Text
 string = StringPath
 (<.>) :: Text -> Path a -> Path a
 (<.>) = ElementPath
-(<#>)  :: Int  -> Path a -> Path a
-(<#>) = IndexPath
 (<+>)   :: Path a -> Path b -> Path (a,b)
 (<+>) = ZipPath
 fgmap   :: (a -> b) -> (b -> a) -> Path a -> Path b
@@ -72,15 +68,20 @@ setPath = setPath' []
  where
    setPath' :: [Text] -> Path a -> a -> PlistBuddy ()
    setPath' path IntegerPath v | not (null path) = do
-         set (reverse path) (Integer v)
+           set_p (reverse path) (Integer v)
    setPath' path StringPath v | not (null path) = do
-         set (reverse path) (String v)
+           set_p (reverse path) (String v)
    setPath' path (ElementPath e p) v = setPath' (e : path) p v
    setPath' path (ZipPath p1 p2) (v1,v2) = do
            setPath' path p1 v1
            setPath' path p2 v2
    setPath' path (MapPath f g p1) v = do
            setPath' path p1 (g v)
+
+-- Be careful: this assumes the path is dict all the way down
+set_p :: [Text] -> Value -> PlistBuddy ()
+set_p []   value = fail "can not set_p root"
+set_p path value = set path value `catchError` \ _ -> add path value  
 
 test1 = do
         d <- openPlist "test.plist" 
@@ -97,4 +98,12 @@ test1 = do
         v <- send d (getPath p1)
         print v
 
+        let p2 = "X1" <.> "Y1" <.> "99" <.> "Z1" <.> integer
                                  
+        send d (setPath p2 1234)
+        v <- send d (getPath p2)
+        print v
+        send d (get []) >>= print
+        
+        
+        

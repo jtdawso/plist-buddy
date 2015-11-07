@@ -185,6 +185,9 @@ main = do
                 ,("S2",String "Hello")
                 ]
         
+        -- try get type error
+        
+        send d $ (set ["I1"] (String "foo"))
 
 
 check :: Text -> Value -> Value -> IO ()
