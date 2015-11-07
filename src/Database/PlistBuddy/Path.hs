@@ -6,6 +6,8 @@ module Database.PlistBuddy.Path
         , (<.>)  
         , (<+>)  
         , fgmap  
+        , optional
+        , readOnly
         , getPath
         , setPath
         ) where
@@ -24,6 +26,8 @@ data Path :: * -> * where
  ElementPath :: Text -> Path a -> Path a
  ZipPath     :: Path a -> Path b -> Path (a,b)
  MapPath   :: (a -> b) -> (b -> a) -> Path a -> Path b
+ OptionalPath :: Path a -> Path (Maybe a)
+ ReadOnlyPath :: Path a -> Path a
 
 infixr 3 <+>
 infixr 9 <.>
@@ -38,6 +42,10 @@ string = StringPath
 (<+>) = ZipPath
 fgmap   :: (a -> b) -> (b -> a) -> Path a -> Path b
 fgmap = MapPath 
+optional :: Path a -> Path (Maybe a)
+optional = OptionalPath
+readOnly :: Path a -> Path a
+readOnly = ReadOnlyPath
 
 getPath :: Path a -> PlistBuddy a
 getPath = getPath' []
@@ -58,9 +66,13 @@ getPath = getPath' []
            v1 <- getPath' path p1
            v2 <- getPath' path p2
            return $ (v1,v2)
-   getPath path (MapPath f g p1) = do
+   getPath' path (MapPath f g p1) = do
            v1 <- getPath' path p1
            return $ f v1
+   getPath' path (OptionalPath p) =
+           (Just <$> getPath' path p) `catchError` \ _ -> return Nothing
+   getPath' path (ReadOnlyPath p) = 
+           getPath' path p
 
 --setPath :: Path a -> a -> IO ()
 setPath :: Path a -> a -> PlistBuddy ()
@@ -77,6 +89,10 @@ setPath = setPath' []
            setPath' path p2 v2
    setPath' path (MapPath f g p1) v = do
            setPath' path p1 (g v)
+   setPath' path (OptionalPath p) Nothing = return ()
+   setPath' path (OptionalPath p) (Just v) = 
+           setPath' path p v
+   setPath' path (ReadOnlyPath p) _ = return ()
 
 -- Be careful: this assumes the path is dict all the way down
 set_p :: [Text] -> Value -> PlistBuddy ()
