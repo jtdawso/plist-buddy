@@ -5,6 +5,8 @@ module Database.PlistBuddy
         , openPlist
         , Plist()
         , send
+        , throwError
+        , catchError
         -- * The Remote Monad operators
         , help
         , exit
@@ -23,6 +25,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
+import Control.Monad.Except
 
 import Data.Text(Text)
 import qualified Data.Text as T
@@ -41,14 +44,18 @@ import Text.XML.Light
 ------------------------------------------------------------------------------
 
 -- | The Remote Monad
-newtype PlistBuddy a = PlistBuddy (ReaderT Plist IO a)
-  deriving (Functor,Applicative,Monad)
+newtype PlistBuddy a = PlistBuddy (ExceptT Text (ReaderT Plist IO) a)
+  deriving (Functor,Applicative,Monad, MonadError Text)
 
 -- | The Remote Plist 
 data Plist = Plist Pty ProcessHandle
 
 send :: Plist -> PlistBuddy a -> IO a
-send dev (PlistBuddy m) = runReaderT m dev
+send dev (PlistBuddy m) = do
+        v <- runReaderT (runExceptT m) dev
+        case v of
+          Left msg  -> fail $ T.unpack msg
+          Right val -> return val
 
 -- | Returns Help Text
 help :: PlistBuddy Text
