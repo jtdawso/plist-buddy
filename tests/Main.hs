@@ -187,8 +187,9 @@ main = do
         
         -- try get type error
         
-        send d $ (set ["I1"] (String "foo"))
+        r <- send d $ ((set ["I1"] (String "foo")>>return "no failed") `catchError` \ msg -> return msg)
+        check "check for type error" r $ "set failed: \"Unrecognized Integer Format\""
 
 
-check :: Text -> Value -> Value -> IO ()
+check :: (Eq a, Show a) => Text -> a -> a -> IO ()
 check msg t1 t2 = if t1 /= t2 then fail ("check failed: " ++ show (msg,t1,t2)) else TIO.putStrLn msg
