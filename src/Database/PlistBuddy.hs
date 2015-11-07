@@ -45,7 +45,16 @@ import Text.XML.Light
 
 -- | The Remote Monad
 newtype PlistBuddy a = PlistBuddy (ExceptT Text (ReaderT Plist IO) a)
-  deriving (Functor,Applicative,Monad, MonadError Text)
+  deriving (Functor,Applicative, MonadError Text, MonadReader Plist, MonadIO)
+
+-- We do this by hand so we can get 'fail'
+instance Monad PlistBuddy where
+        PlistBuddy m1 >>= k = PlistBuddy $ do
+                r <- m1
+                let (PlistBuddy m2) = k r
+                m2
+        return = pure
+        fail = throwError . T.pack
 
 -- | The Remote Plist 
 data Plist = Plist Pty ProcessHandle
@@ -57,16 +66,17 @@ send dev (PlistBuddy m) = do
           Left msg  -> fail $ T.unpack msg
           Right val -> return val
 
+
 -- | Returns Help Text
 help :: PlistBuddy Text
-help = PlistBuddy $ do
+help = do
         Plist pty _ <- ask
         res <- liftIO $ command pty "Help"
         return $ T.filter (/= '\r') $ E.decodeUtf8 $ res
 
 -- | Exits the program, changes are not saved to the file
 exit :: PlistBuddy ()
-exit = PlistBuddy $ do
+exit = do
         Plist pty ph <- ask
         liftIO $ do
             (void $ command pty "Exit") `catch` \ (e :: IOException) -> return ()
@@ -75,17 +85,17 @@ exit = PlistBuddy $ do
 
 -- | Saves the current changes to the file
 save :: PlistBuddy ()
-save = PlistBuddy $ do
+save = do
         Plist pty _ <- ask
         res <- liftIO $ command pty "Save"
         case res of
           "Saving..." -> return ()
-          _ -> fail $ "save failed: " ++ show res
+          _ -> fail $ "save failed: " <> show res
 
 
 -- | Reloads the last saved version of the file
 revert :: PlistBuddy ()
-revert = PlistBuddy $ do
+revert = do
         Plist pty _ <- ask
         res <- liftIO $ command pty "Revert"
         case res of
@@ -95,7 +105,7 @@ revert = PlistBuddy $ do
 -- | Clear Type - Clears out all existing entries, and creates root of a value,
 -- where the value is an empty Dict or Array.
 clear :: Value -> PlistBuddy ()
-clear value = PlistBuddy $ do
+clear value = do
         Plist pty _ <- ask
         ty <- case value of
                      Array [] -> return $ quoteValueType value
@@ -110,7 +120,7 @@ clear value = PlistBuddy $ do
 
 -- | Print Entry - Gets value of Entry.  Otherwise, gets file 
 get :: [Text] -> PlistBuddy (Maybe Value)
-get entry = PlistBuddy $ do
+get entry = do
         Plist pty _ <- ask
         res <- liftIO $ command pty $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
         -- idea: print in XML (-x flag), and decode in more detail
@@ -163,8 +173,8 @@ get entry = PlistBuddy $ do
 -- | Set Entry Value - Sets the value at Entry to Value
 -- You can not set dictionaries or arrays.
 set :: [Text] -> Value -> PlistBuddy ()
-set []    value = PlistBuddy $ fail "Can not set empty path"
-set entry value = PlistBuddy $ do
+set []    value = fail "Can not set empty path"
+set entry value = do
         Plist pty _ <- ask
         res <- liftIO $ command pty $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> quoteValue value 
@@ -175,8 +185,8 @@ set entry value = PlistBuddy $ do
 -- | Add Entry Type [Value] - Adds Entry to the plist, with value Value
 -- You can add *empty* dictionaries or arrays.
 add :: [Text] -> Value -> PlistBuddy ()
-add [] value = PlistBuddy $ fail "Can not add to an empty path"
-add entry value = PlistBuddy $ do
+add [] value = fail "Can not add to an empty path"
+add entry value = do
         Plist pty _ <- ask
         suffix <- case value of
                      Array [] -> return ""
@@ -194,7 +204,7 @@ add entry value = PlistBuddy $ do
 
 -- | Delete Entry - Deletes Entry from the plist
 delete :: [Text] -> PlistBuddy ()
-delete entry = PlistBuddy $ do
+delete entry = do
         Plist pty _ <- ask
         res <- liftIO $ command pty $ "delete " <>  BS.concat [ ":" <> quote e | e <- entry ]
         case res of
