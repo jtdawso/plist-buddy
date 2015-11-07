@@ -19,6 +19,7 @@ module Database.PlistBuddy
         , delete
         -- * Other types
         , Value(..)
+        , debugOn
         ) where
 
 import Control.Concurrent
@@ -57,7 +58,10 @@ instance Monad PlistBuddy where
         fail = throwError . T.pack
 
 -- | The Remote Plist 
-data Plist = Plist Pty ProcessHandle
+data Plist = Plist Pty ProcessHandle Bool
+
+debugOn :: Plist -> Plist
+debugOn (Plist pty h _) = Plist pty h True
 
 send :: Plist -> PlistBuddy a -> IO a
 send dev (PlistBuddy m) = do
@@ -70,14 +74,14 @@ send dev (PlistBuddy m) = do
 -- | Returns Help Text
 help :: PlistBuddy Text
 help = do
-        Plist pty _ <- ask
+        Plist pty _ _ <- ask
         res <- liftIO $ command pty "Help"
         return $ T.filter (/= '\r') $ E.decodeUtf8 $ res
 
 -- | Exits the program, changes are not saved to the file
 exit :: PlistBuddy ()
 exit = do
-        Plist pty ph <- ask
+        Plist pty ph _ <- ask
         liftIO $ do
             (void $ command pty "Exit") `catch` \ (e :: IOException) -> return ()
             waitForProcess ph
@@ -86,7 +90,7 @@ exit = do
 -- | Saves the current changes to the file
 save :: PlistBuddy ()
 save = do
-        Plist pty _ <- ask
+        Plist pty _ _ <- ask
         res <- liftIO $ command pty "Save"
         case res of
           "Saving..." -> return ()
@@ -96,7 +100,7 @@ save = do
 -- | Reloads the last saved version of the file
 revert :: PlistBuddy ()
 revert = do
-        Plist pty _ <- ask
+        Plist pty _ _ <- ask
         res <- liftIO $ command pty "Revert"
         case res of
           "Reverting to last saved state..." -> return ()
@@ -106,7 +110,7 @@ revert = do
 -- where the value is an empty Dict or Array.
 clear :: Value -> PlistBuddy ()
 clear value = do
-        Plist pty _ <- ask
+        Plist pty _ _ <- ask
         ty <- case value of
                      Array [] -> return $ quoteValueType value
                      Array _  -> fail "add: array not empty"
@@ -121,7 +125,8 @@ clear value = do
 -- | Print Entry - Gets value of Entry.  Otherwise, gets file 
 get :: [Text] -> PlistBuddy Value
 get entry = do
-        Plist pty _ <- ask
+        debug ("get",entry)
+        Plist pty _ _ <- ask
         res <- liftIO $ command pty $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
         -- idea: print in XML (-x flag), and decode in more detail
         case parseXMLDoc res of
@@ -138,10 +143,18 @@ get entry = do
                           "string"  -> String  <$> parseString cs
                           "dict"    -> Dict    <$> parseDict cs
                           "array"   -> Array   <$> parseArray cs
+                          "false"   -> return $ Bool False
+                          "true"    -> return $ Bool True
+                          "real"    -> Real    <$> parseReal cs
+                          "data"    -> return $ Data ()
+                          "date"    -> return $ Date ()
                           x -> error $ show ("other",x,cs)
 
         parseInteger :: [Content] -> Maybe Integer
         parseInteger = return . read . concatMap showContent 
+
+        parseReal :: [Content] -> Maybe Double
+        parseReal = return . read . concatMap showContent 
 
         -- "\t" messes up
         parseString :: [Content] -> Maybe Text
@@ -177,7 +190,8 @@ get entry = do
 set :: [Text] -> Value -> PlistBuddy ()
 set []    value = fail "Can not set empty path"
 set entry value = do
-        Plist pty _ <- ask
+        debug ("set",entry,value)
+        Plist pty _ _ <- ask
         res <- liftIO $ command pty $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> quoteValue value 
         case res of
@@ -189,7 +203,8 @@ set entry value = do
 add :: [Text] -> Value -> PlistBuddy ()
 add [] value = fail "Can not add to an empty path"
 add entry value = do
-        Plist pty _ <- ask
+        debug ("add",entry,value)
+        Plist pty _ _ <- ask
         suffix <- case value of
                      Array [] -> return ""
                      Array _ -> fail "add: array not empty"
@@ -207,7 +222,8 @@ add entry value = do
 -- | Delete Entry - Deletes Entry from the plist
 delete :: [Text] -> PlistBuddy ()
 delete entry = do
-        Plist pty _ <- ask
+        debug ("delete",entry)
+        Plist pty _ _ <- ask
         res <- liftIO $ command pty $ "delete " <>  BS.concat [ ":" <> quote e | e <- entry ]
         case res of
           "" -> return ()
@@ -272,7 +288,7 @@ openPlist fileName = do
     attr <- getTerminalAttributes pty
     setTerminalAttributes pty (attr `withoutMode` EnableEcho) Immediately
     _ <- recvReply pty 
-    return $ Plist pty ph
+    return $ Plist pty ph False
 
 command :: Pty -> ByteString -> IO ByteString
 command pty input = do
@@ -308,4 +324,12 @@ rbsToByteString = BS.concat . reverse
 isSuffixOf :: ByteString -> RBS -> Bool
 isSuffixOf bs rbs = bs `BS.isSuffixOf` rbsToByteString rbs
 
+-----------------------------
 
+debug :: (Show a) => a -> PlistBuddy ()
+debug a = do
+        Plist _ _ d <- ask
+        when d $ do
+                liftIO $ print a
+                
+                
