@@ -119,14 +119,16 @@ clear value = do
           _  -> fail $ "add failed: " ++ show res
 
 -- | Print Entry - Gets value of Entry.  Otherwise, gets file 
-get :: [Text] -> PlistBuddy (Maybe Value)
+get :: [Text] -> PlistBuddy Value
 get entry = do
         Plist pty _ <- ask
         res <- liftIO $ command pty $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
         -- idea: print in XML (-x flag), and decode in more detail
         case parseXMLDoc res of
-          Nothing -> return Nothing
-          Just (Element _ _ xml _) -> return $ parse (onlyElems xml)
+          Nothing -> fail "get: early parse error"
+          Just (Element _ _ xml _) -> case parse (onlyElems xml) of
+                                        Nothing -> fail "get: late parse error"
+                                        Just v -> return v
   where
         parse :: [Element] -> Maybe Value
         parse [] = Nothing

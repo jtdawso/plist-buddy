@@ -187,5 +187,5 @@ main = do
         
 
 
-check :: Text -> Maybe Value -> Value -> IO ()
-check msg t1 t2 = if t1 /= Just t2 then fail ("check failed: " ++ show (msg,t1,t2)) else TIO.putStrLn msg
+check :: Text -> Value -> Value -> IO ()
+check msg t1 t2 = if t1 /= t2 then fail ("check failed: " ++ show (msg,t1,t2)) else TIO.putStrLn msg

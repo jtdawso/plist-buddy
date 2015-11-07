@@ -48,13 +48,13 @@ getPath = getPath' []
    getPath' path IntegerPath = do
            v <- get (reverse path)
            case v of
-             Just (Integer i) -> return i
-             _                -> fail $ "bad type of value at " ++ show (path,v)
+             (Integer i) -> return i
+             _           -> fail $ "bad type of value at " ++ show (path,v)
    getPath' path StringPath = do
            v <- get (reverse path)
            case v of
-             Just (String i) -> return i
-             _                -> fail $ "bad type of value at " ++ show (path,v)
+             (String i) -> return i
+             _          -> fail $ "bad type of value at " ++ show (path,v)
    getPath' path (ElementPath e p) = getPath' (e : path) p
    getPath' path (ZipPath p1 p2) = do
            v1 <- getPath' path p1
