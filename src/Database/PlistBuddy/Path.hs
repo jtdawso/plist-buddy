@@ -3,8 +3,8 @@ module Database.PlistBuddy.Path
         ( Path
         , integer
         , string 
-        , element
-        , ix     
+        , (<#>)
+        , (<.>)  
         , (<+>)  
         , fgmap  
         , getPath
@@ -27,15 +27,17 @@ data Path :: * -> * where
  MapPath   :: (a -> b) -> (b -> a) -> Path a -> Path b
 
 infixr 3 <+>
+infixr 9 <.>
+infixr 9 <#>
 
 integer :: Path Integer
 integer = IntegerPath
 string  :: Path Text
 string = StringPath
-element :: Text -> Path a -> Path a
-element = ElementPath
-ix      :: Int  -> Path a -> Path a
-ix = IndexPath
+(<.>) :: Text -> Path a -> Path a
+(<.>) = ElementPath
+(<#>)  :: Int  -> Path a -> Path a
+(<#>) = IndexPath
 (<+>)   :: Path a -> Path b -> Path (a,b)
 (<+>) = ZipPath
 fgmap   :: (a -> b) -> (b -> a) -> Path a -> Path b
@@ -82,11 +84,11 @@ setPath = setPath' []
 
 test1 = do
         d <- openPlist "test.plist" 
-        v <- send d (getPath (element "I2" integer))
+        v <- send d (getPath ("I2" <.> integer))
         print v
-        let p1 =  element "I1" integer
-              <+> element "I2" integer
-              <+> element "S2" string
+        let p1 =  "I1" <.> integer
+              <+> "I2" <.> integer
+              <+> "S2" <.> string
 
         v <- send d (getPath p1)
         print v
