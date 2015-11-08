@@ -23,6 +23,7 @@ module Database.PlistBuddy
         ) where
 
 import Control.Concurrent
+import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
@@ -58,10 +59,10 @@ instance Monad PlistBuddy where
         fail = throwError . T.pack
 
 -- | The Remote Plist 
-data Plist = Plist Pty ProcessHandle Bool
+data Plist = Plist Pty (MVar ()) ProcessHandle Bool
 
 debugOn :: Plist -> Plist
-debugOn (Plist pty h _) = Plist pty h True
+debugOn (Plist pty lock h _) = Plist pty lock h True
 
 send :: Plist -> PlistBuddy a -> IO a
 send dev (PlistBuddy m) = do
@@ -74,24 +75,24 @@ send dev (PlistBuddy m) = do
 -- | Returns Help Text
 help :: PlistBuddy Text
 help = do
-        Plist pty _ _ <- ask
-        res <- liftIO $ command pty "Help"
+        Plist pty lock _ _ <- ask
+        res <- liftIO $ command pty lock "Help"
         return $ T.filter (/= '\r') $ E.decodeUtf8 $ res
 
 -- | Exits the program, changes are not saved to the file
 exit :: PlistBuddy ()
 exit = do
-        Plist pty ph _ <- ask
+        Plist pty lock ph _ <- ask
         liftIO $ do
-            (void $ command pty "Exit") `catch` \ (e :: IOException) -> return ()
+            (void $ command pty lock "Exit") `catch` \ (e :: IOException) -> return ()
             waitForProcess ph
         return ()
 
 -- | Saves the current changes to the file
 save :: PlistBuddy ()
 save = do
-        Plist pty _ _ <- ask
-        res <- liftIO $ command pty "Save"
+        Plist pty lock _ _ <- ask
+        res <- liftIO $ command pty lock "Save"
         case res of
           "Saving..." -> return ()
           _ -> fail $ "save failed: " <> show res
@@ -100,8 +101,8 @@ save = do
 -- | Reloads the last saved version of the file
 revert :: PlistBuddy ()
 revert = do
-        Plist pty _ _ <- ask
-        res <- liftIO $ command pty "Revert"
+        Plist pty lock _ _ <- ask
+        res <- liftIO $ command pty lock "Revert"
         case res of
           "Reverting to last saved state..." -> return ()
           _ -> fail $ "revert failed: " ++ show res
@@ -110,14 +111,14 @@ revert = do
 -- where the value is an empty Dict or Array.
 clear :: Value -> PlistBuddy ()
 clear value = do
-        Plist pty _ _ <- ask
+        Plist pty lock _ _ <- ask
         ty <- case value of
                      Array [] -> return $ quoteValueType value
                      Array _  -> fail "add: array not empty"
                      Dict []  -> return $ quoteValueType value
                      Dict _   -> fail "add: dict not empty"
                      _        -> fail "adding a non dict/array to the root path"
-        res <- liftIO $ command pty $ "Clear " <> ty
+        res <- liftIO $ command pty lock $ "Clear " <> ty
         case res of
           "Initializing Plist..." -> return ()
           _  -> fail $ "add failed: " ++ show res
@@ -126,8 +127,8 @@ clear value = do
 get :: [Text] -> PlistBuddy Value
 get entry = do
         debug ("get",entry)
-        Plist pty _ _ <- ask
-        res <- liftIO $ command pty $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
+        Plist pty lock _ _ <- ask
+        res <- liftIO $ command pty lock $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
         -- idea: print in XML (-x flag), and decode in more detail
         case parseXMLDoc res of
           Nothing -> fail "get: early parse error"
@@ -191,8 +192,8 @@ set :: [Text] -> Value -> PlistBuddy ()
 set []    value = fail "Can not set empty path"
 set entry value = do
         debug ("set",entry,value)
-        Plist pty _ _ <- ask
-        res <- liftIO $ command pty $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
+        Plist pty lock _ _ <- ask
+        res <- liftIO $ command pty lock $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> quoteValue value 
         case res of
           "" -> return ()
@@ -204,7 +205,7 @@ add :: [Text] -> Value -> PlistBuddy ()
 add [] value = fail "Can not add to an empty path"
 add entry value = do
         debug ("add",entry,value)
-        Plist pty _ _ <- ask
+        Plist pty lock _ _ <- ask
         suffix <- case value of
                      Array [] -> return ""
                      Array _ -> fail "add: array not empty"
@@ -212,7 +213,7 @@ add entry value = do
                      Dict _ -> fail "add: array not empty"
                      _ -> return $ " " <> quoteValue value
 
-        res <- liftIO $ command pty $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
+        res <- liftIO $ command pty lock $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> quoteValueType value
                                       <> suffix
         case res of
@@ -223,8 +224,8 @@ add entry value = do
 delete :: [Text] -> PlistBuddy ()
 delete entry = do
         debug ("delete",entry)
-        Plist pty _ _ <- ask
-        res <- liftIO $ command pty $ "delete " <>  BS.concat [ ":" <> quote e | e <- entry ]
+        Plist pty lock _ _ <- ask
+        res <- liftIO $ command pty lock $ "delete " <>  BS.concat [ ":" <> quote e | e <- entry ]
         case res of
           "" -> return ()
           _  -> fail $ "delete failed: " ++ show res
@@ -288,11 +289,15 @@ openPlist fileName = do
     attr <- getTerminalAttributes pty
     setTerminalAttributes pty (attr `withoutMode` EnableEcho) Immediately
     _ <- recvReply pty 
-    return $ Plist pty ph False
+    lock <- newMVar ()
+    return $ Plist pty lock ph False
 
-command :: Pty -> ByteString -> IO ByteString
-command pty input = do
---        print input
+command :: Pty -> MVar () -> ByteString -> IO ByteString
+command pty lock input = do
+         () <- takeMVar lock
+         finally todo $ putMVar lock ()
+  where
+    todo = do
         when (not $ BS.null input) $  writePty pty input -- quirk of pty's?
         writePty pty "\n"
         recvReply pty 
@@ -328,7 +333,7 @@ isSuffixOf bs rbs = bs `BS.isSuffixOf` rbsToByteString rbs
 
 debug :: (Show a) => a -> PlistBuddy ()
 debug a = do
-        Plist _ _ d <- ask
+        Plist _ _ _ d <- ask
         when d $ do
                 liftIO $ print a
                 
