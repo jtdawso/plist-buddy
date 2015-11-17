@@ -43,6 +43,8 @@ import System.Posix.Pty
 
 import Text.XML.Light
 
+import Data.Time
+
 ------------------------------------------------------------------------------
 
 -- | The Remote Monad
@@ -148,7 +150,7 @@ get entry = do
                           "true"    -> return $ Bool True
                           "real"    -> Real    <$> parseReal cs
                           "data"    -> return $ Data ()
-                          "date"    -> return $ Date ()
+                          "date"    -> Date    <$> parseDate cs
                           x -> error $ show ("other",x,cs)
 
         parseInteger :: [Content] -> Maybe Integer
@@ -156,6 +158,12 @@ get entry = do
 
         parseReal :: [Content] -> Maybe Double
         parseReal = return . read . concatMap showContent 
+
+        -- The content must be encoded as an ISO-8601 string in the UTC timezone
+        -- https://code.google.com/p/networkpx/wiki/PlistSpec#date
+        parseDate :: [Content] -> Maybe UTCTime
+        parseDate = parseTimeM True defaultTimeLocale "%FT%XZ"
+                  . concatMap showContent 
 
         -- "\t" messes up
         parseString :: [Content] -> Maybe Text
@@ -252,7 +260,7 @@ data Value  = String Text
             | Bool Bool
             | Real Double
             | Integer Integer
-            | Date ()
+            | Date UTCTime
             | Data ()
         deriving (Show, Read, Eq, Ord)
 
