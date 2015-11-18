@@ -199,10 +199,11 @@ get entry = do
 set :: [Text] -> Value -> PlistBuddy ()
 set []    value = fail "Can not set empty path"
 set entry value = do
-        debug ("set",entry,value)
+        tz <- liftIO $ getCurrentTimeZone
+        debug ("set",entry,value,quoteValue tz value,quoteValueType value)
         Plist pty lock _ _ <- ask
         res <- liftIO $ command pty lock $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
-                                      <> " " <> quoteValue value 
+                                      <> " " <> quoteValue tz value 
         case res of
           "" -> return ()
           _  -> fail $ "set failed: " ++ show res
@@ -212,14 +213,15 @@ set entry value = do
 add :: [Text] -> Value -> PlistBuddy ()
 add [] value = fail "Can not add to an empty path"
 add entry value = do
-        debug ("add",entry,value)
+        tz <- liftIO $ getCurrentTimeZone
+        debug ("add",entry,value,quoteValue tz value,quoteValueType value)
         Plist pty lock _ _ <- ask
         suffix <- case value of
                      Array [] -> return ""
                      Array _ -> fail "add: array not empty"
                      Dict [] -> return ""
                      Dict _ -> fail "add: array not empty"
-                     _ -> return $ " " <> quoteValue value
+                     _ -> return $ " " <> quoteValue tz value
 
         res <- liftIO $ command pty lock $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> quoteValueType value
@@ -264,15 +266,22 @@ data Value  = String Text
             | Data ()
         deriving (Show, Read, Eq, Ord)
 
-quoteValue :: Value -> ByteString
-quoteValue (String txt) = quote txt
-quoteValue (Array {})   = error "array value"
-quoteValue (Dict {})    = error "dict value"
-quoteValue (Bool True)  = "true"
-quoteValue (Bool False) = "false"
-quoteValue (Real r)     = E.encodeUtf8 $ T.pack $ show r
-quoteValue (Integer i)  = E.encodeUtf8 $ T.pack $ show i
-quoteValue other        = error $ show other ++ " not supported"
+quoteValue :: TimeZone -> Value -> ByteString
+quoteValue _  (String txt) = quote txt
+quoteValue _  (Array {})   = error "array value"
+quoteValue _  (Dict {})    = error "dict value"
+quoteValue _  (Bool True)  = "true"
+quoteValue _  (Bool False) = "false"
+quoteValue _  (Real r)     = E.encodeUtf8 $ T.pack $ show r
+quoteValue _  (Integer i)  = E.encodeUtf8 $ T.pack $ show i
+--  for some reason, PlistBuddy does not access UTC, but needs an actual zone.
+quoteValue tz (Date d)     = E.encodeUtf8 $ T.pack 
+                        $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S %Z %Y" 
+                        $ utcToZonedTime tz
+                        $ d
+quoteValue _ other        = error $ show other ++ " not supported"
+
+-- Mon Oct 27 20:06:30 CST 2014
 
 quoteValueType :: Value -> ByteString
 quoteValueType (String txt) = "string"
@@ -282,6 +291,7 @@ quoteValueType (Bool True)  = "bool"
 quoteValueType (Bool False) = "bool"
 quoteValueType (Real r)     = "real"
 quoteValueType (Integer i)  = "integer"
+quoteValueType (Date {})    = "date"
 quoteValueType other        = error $ show other ++ " not supported"
 
 ------------------------------------------------------------------------------

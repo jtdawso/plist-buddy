@@ -4,6 +4,7 @@ import Database.PlistBuddy
 import Data.Monoid
 import Data.Text(Text)
 import Data.Text.IO as TIO
+import Data.Time
 
 main = do
         TIO.writeFile "test.plist" "{}"
@@ -189,6 +190,21 @@ main = do
         
         r <- send d $ ((set ["I1"] (String "foo")>>return "no failed") `catchError` \ msg -> return msg)
         check "check for type error" r $ "set failed: \"Unrecognized Integer Format\""
+
+        _ <- send d $ exit
+
+        d <- openPlist "test.plist"
+
+        now <- getCurrentTime
+
+	send d $ add ["S5"] (Date now)
+
+        Date r0 <- send d $ get ["S5"]
+        
+        check "check for date storage" (abs (diffUTCTime now r0) < 1) $ True
+        _ <- send d $ exit
+
+        return ()
 
 
 check :: (Eq a, Show a) => Text -> a -> a -> IO ()
