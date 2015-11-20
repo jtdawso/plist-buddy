@@ -289,15 +289,21 @@ instance Arbitrary Value where
     arbitrary = sized $ \ n -> arbitraryValue n
     
 arbitraryValue :: Int -> Gen Value
-arbitraryValue 0 = oneof 
-    [ Integer <$> arbitrary
-    , String  <$> arbitraryText
-    , Bool    <$> arbitrary
-    , Real    <$> arbitrary
---    , Date    <$> arbitraryDate
---    , Data    <$> arbitraryData -- not supported yet
-    ]
-arbitraryValue n = arbitraryValue 0 
+arbitraryValue n = frequency 
+  [(8,(\ (PrimValue v) -> v) <$> arbitrary),
+   (1,mysized $ \ n' -> Dict <$> sequence [ arbitraryDict (n-1) | _ <- [1..n]]),
+   (1,mysized $ \ n' -> Array <$> sequence [ arbitraryValue (n-1) | _ <- [1..n]])
+--   (1,return (Array [])
+  ]
+  where mysized k | n == 0    = k 0
+                  | otherwise = sized k
+                   
+
+arbitraryDict :: Int -> Gen (Text,Value)
+arbitraryDict n = do
+  Label nm <- arbitrary
+  v <- arbitraryValue n
+  return (nm,v)
 
 arbitraryDate :: Gen UTCTime
 arbitraryDate =
@@ -307,7 +313,7 @@ arbitraryDate =
           <*> (fromInteger <$> choose (0,60 * 60 * 24 - 1))
         
 arbitraryText :: Gen Text
-arbitraryText = sized $ \ n -> pack <$> (vectorOf (n`div`10) $ elements ('\n':[' '..'~']))
+arbitraryText = sized $ \ n -> pack <$> (vectorOf (n`div` 5) $ elements ('\n':[' '..'~']))
 
 arbitraryData :: Gen BS.ByteString
 arbitraryData = sized $ \ n -> BS.pack <$> (vectorOf (n`div`10) $ elements ([32..126]))
@@ -326,3 +332,40 @@ eqValue (Integer a1) (Integer a2) = a1 == a2
 eqValue (Date d1)   (Date d2)      = d1 == d2
 eqValue (Data d1)   (Data d2)      = d1 == d2
 eqValue _ _ = False
+
+
+---------------------------------------
+
+newtype PrimValue = PrimValue Value -- any primitive
+  deriving Show
+
+instance Arbitrary PrimValue where
+  arbitrary = PrimValue <$> oneof 
+    [ Integer <$> arbitrary
+    , String  <$> arbitraryText
+    , Bool    <$> arbitrary
+    , Real    <$> arbitrary
+--    , Date    <$> arbitraryDate
+--    , Data    <$> arbitraryData -- not supported yet
+    ]
+
+newtype OneValue = OneValue Value -- primitive + empty dict or empty array
+  deriving Show
+  
+instance Arbitrary OneValue where
+  arbitrary = OneValue <$> arbitraryValue 0
+
+newtype DeepValue = DeepValue Value -- any value, to any depth
+  deriving Show
+  
+instance Arbitrary DeepValue where
+  arbitrary = DeepValue <$> sized (arbitraryValue . (`mod` 8))
+
+newtype Label = Label Text
+  deriving Show
+
+instance Arbitrary Label where
+  arbitrary = sized $ \ n -> (Label . pack) <$> sequence
+                [ elements (['0'..'9'] ++ ['a'..'z'] ++ ['A'..'Z'])
+                | _ <- [0..n `mod` 32]
+                ]
