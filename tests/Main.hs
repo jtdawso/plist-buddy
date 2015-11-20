@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
 import Database.PlistBuddy 
 
 import Data.Monoid
@@ -17,7 +17,9 @@ import System.Timeout
 import Control.Concurrent (threadDelay)
 import System.Mem
 
-import Data.List (sortBy)
+import Data.List (sortBy, nub, transpose)
+
+import GHC.Generics
 
 clearDB :: IO ()
 clearDB = do
@@ -39,7 +41,7 @@ withPlistConnection = bracket openConnection closeConnection
 
 main :: IO ()
 main = hspec $ beforeAll clearDB $ do
-  describe "inital plist" $  modifyMaxSuccess (\ x -> 100) $ do
+  describe "inital plist" $ do  -- modifyMaxSuccess (\ x -> 100) $ do
 
     it "check initial dict is an dictionary" $ withPlistConnection $ \ d -> do
       r0 <- send d $ get []
@@ -69,6 +71,29 @@ main = hspec $ beforeAll clearDB $ do
           _ <- send d $ set [lbl] v2
           r0 <- send d $ get []
           r0 `shouldBe` Dict [(lbl,v2)]
+
+    it "populate a DB" $ 
+      property $ \ (DictValue v) -> withPlistConnection $ \ d -> do
+        send d $ populateDict v
+        r0 <- send d $ get []
+        r0 `shouldBe` v
+
+
+populateDict :: Value -> PlistBuddy ()
+populateDict (Dict xs) = sequence_ [ populate (Path $ [i]) v | (i,v) <- xs ]
+populateDict _ = error "expecting a Dict"
+  
+populate :: Path -> Value -> PlistBuddy ()
+populate (Path ps) val = 
+  case val of
+    Dict xs -> do
+      add ps (Dict [])
+      sequence_ [ populate (Path $ ps ++ [i]) v | (i,v) <- xs ]
+    Array vs -> do
+      add ps (Array [])
+      sequence_ [ populate (Path $ ps ++ [pack (show i)]) v | (i,v) <- [0..] `zip` vs ]
+    _ -> add ps val
+
 
 main2 = do
         IO.hSetBuffering IO.stdout IO.NoBuffering
@@ -291,20 +316,20 @@ main2 = do
 check :: (Eq a, Show a) => Text -> a -> a -> IO ()
 check msg t1 t2 = if t1 /= t2 then fail ("check failed: " ++ show (msg,t1,t2)) else TIO.putStrLn msg
 
-
-instance Arbitrary Value where
-    arbitrary = sized $ \ n -> arbitraryValue n
     
 arbitraryValue :: Int -> Gen Value
 arbitraryValue n = frequency 
-  [(8,(\ (PrimValue v) -> v) <$> arbitrary),
-   (1,mysized $ \ n' -> Dict <$> sequence [ arbitraryDict (n-1) | _ <- [1..n]]),
+  [(7,(\ (PrimValue v) -> v) <$> arbitrary),
+   (2,mysized $ \ n' -> mkDict <$> sequence [ arbitraryDict (n-1) | _ <- [1..n]]),
    (1,mysized $ \ n' -> Array <$> sequence [ arbitraryValue (n-1) | _ <- [1..n]])
---   (1,return (Array [])
   ]
   where mysized k | n == 0    = k 0
-                  | otherwise = sized k
-                   
+                  | otherwise = sized (k . (`mod` 8))
+
+
+-- removes dup labels
+mkDict :: [(Text,Value)] -> Value
+mkDict xs = Dict [ (lbl,v) | (lbl,v) <- nub (map fst xs) `zip` map snd xs ]
 
 arbitraryDict :: Int -> Gen (Text,Value)
 arbitraryDict n = do
@@ -333,18 +358,40 @@ eqValue (String s1) (String s2) = s1 == s2
 eqValue (Array a1)  (Array a2)  = a1 == a2
 eqValue (Dict d1)   (Dict d2)   = sortBy f d1 == sortBy f d2  -- order should not matter
   where f (a,_) (b,_) = a `compare` b
-eqValue (Bool a1)   (Bool a2)   = a1 == a2
-eqValue (Real a1)   (Real a2)   = abs (a1 - a2) < 1e-3
+eqValue (Bool a1)    (Bool a2)   = a1 == a2
+eqValue (Real a1)    (Real a2)   = abs (a1 - a2) <= abs ((a1 + a2) / 1e6)
 eqValue (Integer a1) (Integer a2) = a1 == a2
-eqValue (Date d1)   (Date d2)      = d1 == d2
-eqValue (Data d1)   (Data d2)      = d1 == d2
+eqValue (Date d1)    (Date d2)    = d1 == d2
+eqValue (Data d1)    (Data d2)    = d1 == d2
 eqValue _ _ = False
 
 
 ---------------------------------------
 
+valueShrink :: Value -> [Value]
+valueShrink (Dict []) = []
+valueShrink (Dict [(lbl,x)]) = [x]
+valueShrink (Dict xs) =
+    [ Dict (take i xs ++ drop (i + 1) xs)
+    | i <- [0..length xs]
+    ] ++ 
+    [ Dict (map fst xs `zip` vs)
+    | vs <- fmap valueShrink (map snd xs) 
+    ]
+valueShrink (Array vs) =
+    [ Array (take i vs ++ drop (i + 1) vs)
+    | i <- [0..length vs]
+    ] ++ 
+    [ Array vs
+    | vs <- transpose $ map valueShrink vs
+    ]
+valueShrink other = []
+    
+
+---------------------------------------
+
 newtype PrimValue = PrimValue Value -- any primitive
-  deriving Show
+  deriving (Show,Generic)
 
 instance Arbitrary PrimValue where
   arbitrary = PrimValue <$> oneof 
@@ -355,24 +402,40 @@ instance Arbitrary PrimValue where
 --    , Date    <$> arbitraryDate
 --    , Data    <$> arbitraryData -- not supported yet
     ]
+  shrink (PrimValue v) = [ PrimValue v' | v' <- valueShrink v, valueType v == valueType v']
 
 newtype OneValue = OneValue Value -- primitive + empty dict or empty array
-  deriving Show
+  deriving (Show,Generic)
   
 instance Arbitrary OneValue where
   arbitrary = OneValue <$> arbitraryValue 0
+  shrink (OneValue v) = [ OneValue v' | v' <- valueShrink v, valueType v == valueType v']
 
 newtype DeepValue = DeepValue Value -- any value, to any depth
-  deriving Show
+  deriving (Show,Generic)
   
 instance Arbitrary DeepValue where
   arbitrary = DeepValue <$> sized (arbitraryValue . (`mod` 8))
+  shrink (DeepValue v) = [ DeepValue v' | v' <- valueShrink v, valueType v == valueType v']
 
+newtype DictValue = DictValue Value -- any value, to any depth
+  deriving (Show,Generic)
+
+instance Arbitrary DictValue where
+  arbitrary = (DictValue . mkDict) <$> (sized $ \ n -> vectorOf n (sized (arbitraryDict . (`mod` 8))))
+  shrink (DictValue v) = [ DictValue v' | v' <- valueShrink v, valueType v == valueType v']
+  
 newtype Label = Label Text
-  deriving Show
+  deriving (Show,Generic)
 
 instance Arbitrary Label where
   arbitrary = sized $ \ n -> (Label . pack) <$> sequence
                 [ elements (['0'..'9'] ++ ['a'..'z'] ++ ['A'..'Z'])
                 | _ <- [0..n `mod` 32]
                 ]
+newtype Path = Path [Text] -- non-empty
+  deriving (Show,Generic)
+
+instance Arbitrary Path where
+  arbitrary = Path <$> return []
+
