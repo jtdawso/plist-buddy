@@ -34,6 +34,7 @@ import qualified Data.Text as T
 import Data.Text.Encoding as E
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Base64 as B64
 import Data.List ()
 import Data.Monoid ((<>))
 
@@ -41,9 +42,10 @@ import System.Process
 import System.IO
 import System.Posix.Pty
 
-import Text.XML.Light
+import Text.XML.Light as X
 
 import Data.Time
+import Data.Either(either)
 
 ------------------------------------------------------------------------------
 
@@ -77,24 +79,30 @@ send dev (PlistBuddy m) = do
 -- | Returns Help Text
 help :: PlistBuddy Text
 help = do
-        Plist pty lock _ _ <- ask
-        res <- liftIO $ command pty lock "Help"
+        plist@(Plist pty lock _ _) <- ask
+        res <- liftIO $ command plist "Help"
         return $ T.filter (/= '\r') $ E.decodeUtf8 $ res
 
 -- | Exits the program, changes are not saved to the file
 exit :: PlistBuddy ()
 exit = do
-        Plist pty lock ph _ <- ask
+        plist@(Plist pty _ ph _) <- ask
         liftIO $ do
-            (void $ command pty lock "Exit") `catch` \ (e :: IOException) -> return ()
+            (void $ command plist "Exit") `catch` \ (e :: IOException) -> do { return () }
+        debug ("waiting for Process on exit")
+        r <- liftIO $ do
             waitForProcess ph
+        debug ("closing pty after process closed",r)
+        liftIO $ do
+            closePty pty
+        debug ("done with exit, including closing pty")
         return ()
 
 -- | Saves the current changes to the file
 save :: PlistBuddy ()
 save = do
-        Plist pty lock _ _ <- ask
-        res <- liftIO $ command pty lock "Save"
+        plist@(Plist pty lock _ _) <- ask
+        res <- liftIO $ command plist "Save"
         case res of
           "Saving..." -> return ()
           _ -> fail $ "save failed: " <> show res
@@ -103,8 +111,8 @@ save = do
 -- | Reloads the last saved version of the file
 revert :: PlistBuddy ()
 revert = do
-        Plist pty lock _ _ <- ask
-        res <- liftIO $ command pty lock "Revert"
+        plist@(Plist pty lock _ _) <- ask
+        res <- liftIO $ command plist "Revert"
         case res of
           "Reverting to last saved state..." -> return ()
           _ -> fail $ "revert failed: " ++ show res
@@ -113,14 +121,14 @@ revert = do
 -- where the value is an empty Dict or Array.
 clear :: Value -> PlistBuddy ()
 clear value = do
-        Plist pty lock _ _ <- ask
+        plist@(Plist pty lock _ _) <- ask
         ty <- case value of
                      Array [] -> return $ quoteValueType value
                      Array _  -> fail "add: array not empty"
                      Dict []  -> return $ quoteValueType value
                      Dict _   -> fail "add: dict not empty"
                      _        -> fail "adding a non dict/array to the root path"
-        res <- liftIO $ command pty lock $ "Clear " <> ty
+        res <- liftIO $ command plist $ "Clear " <> ty
         case res of
           "Initializing Plist..." -> return ()
           _  -> fail $ "add failed: " ++ show res
@@ -129,13 +137,13 @@ clear value = do
 get :: [Text] -> PlistBuddy Value
 get entry = do
         debug ("get",entry)
-        Plist pty lock _ _ <- ask
-        res <- liftIO $ command pty lock $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
+        plist@(Plist pty lock _ _) <- ask
+        res <- liftIO $ command plist $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
         -- idea: print in XML (-x flag), and decode in more detail
         case parseXMLDoc res of
           Nothing -> fail "get: early parse error"
           Just (Element _ _ xml _) -> case parse (onlyElems xml) of
-                                        Nothing -> fail "get: late parse error"
+                                        Nothing -> fail ("get: late parse error : " ++ show (onlyElems xml))
                                         Just v -> return v
   where
         parse :: [Element] -> Maybe Value
@@ -149,7 +157,7 @@ get entry = do
                           "false"   -> return $ Bool False
                           "true"    -> return $ Bool True
                           "real"    -> Real    <$> parseReal cs
-                          "data"    -> return $ Data ()
+                          "data"    -> Data    <$> parseData cs
                           "date"    -> Date    <$> parseDate cs
                           x -> error $ show ("other",x,cs)
 
@@ -165,9 +173,28 @@ get entry = do
         parseDate = parseTimeM True defaultTimeLocale "%FT%XZ"
                   . concatMap showContent 
 
+        parseData :: [Content] -> Maybe ByteString
+        parseData = either (const Nothing)
+                           (Just)
+                  . B64.decode
+                  . E.encodeUtf8
+                  . T.pack
+                  . concatMap showContent 
+
         -- "\t" messes up
         parseString :: [Content] -> Maybe Text
-        parseString = return . T.pack . concatMap showContent 
+        parseString = return . T.pack . showContents 
+
+        showContents :: [Content] -> String
+        showContents = concatMap showContent
+          where        
+            showContent :: Content -> String
+            showContent (Elem e) = error "internal Elem"
+            showContent (Text e) = case cdVerbatim e of
+              CDataText     -> cdData e
+              CDataVerbatim -> error "internal CDataVerbatim"
+              CDataRaw      -> error "internal CDataRaw"
+            showContent (CRef e) = error "internal CRef"
 
         parseDict :: [Content] -> Maybe [(Text,Value)]
         parseDict cs = parseDict' (onlyElems cs)
@@ -201,8 +228,8 @@ set []    value = fail "Can not set empty path"
 set entry value = do
         tz <- liftIO $ getCurrentTimeZone
         debug ("set",entry,value,quoteValue tz value,quoteValueType value)
-        Plist pty lock _ _ <- ask
-        res <- liftIO $ command pty lock $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
+        plist@(Plist pty lock _ _) <- ask
+        res <- liftIO $ command plist $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> quoteValue tz value 
         case res of
           "" -> return ()
@@ -215,7 +242,7 @@ add [] value = fail "Can not add to an empty path"
 add entry value = do
         tz <- liftIO $ getCurrentTimeZone
         debug ("add",entry,value,quoteValue tz value,quoteValueType value)
-        Plist pty lock _ _ <- ask
+        plist@(Plist pty lock _ _) <- ask
         suffix <- case value of
                      Array [] -> return ""
                      Array _ -> fail "add: array not empty"
@@ -223,7 +250,7 @@ add entry value = do
                      Dict _ -> fail "add: array not empty"
                      _ -> return $ " " <> quoteValue tz value
 
-        res <- liftIO $ command pty lock $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
+        res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> quoteValueType value
                                       <> suffix
         case res of
@@ -234,8 +261,8 @@ add entry value = do
 delete :: [Text] -> PlistBuddy ()
 delete entry = do
         debug ("delete",entry)
-        Plist pty lock _ _ <- ask
-        res <- liftIO $ command pty lock $ "delete " <>  BS.concat [ ":" <> quote e | e <- entry ]
+        plist@(Plist pty lock _ _) <- ask
+        res <- liftIO $ command plist $ "delete " <>  BS.concat [ ":" <> quote e | e <- entry ]
         case res of
           "" -> return ()
           _  -> fail $ "delete failed: " ++ show res
@@ -252,6 +279,7 @@ quote q = "'" <> BS.concatMap esc (E.encodeUtf8 q) <> "'"
   where esc 39 = "\\'"
         esc 92 = "\\\\"  -- RTT moment
         esc 10 = "\\n"
+        esc 34 = "\\\""
         esc c  = BS.pack [c]
         
 ------------------------------------------------------------------------------
@@ -263,7 +291,7 @@ data Value  = String Text
             | Real Double
             | Integer Integer
             | Date UTCTime
-            | Data ()
+            | Data ByteString
         deriving (Show, Read, Eq, Ord)
 
 quoteValue :: TimeZone -> Value -> ByteString
@@ -279,6 +307,7 @@ quoteValue tz (Date d)     = E.encodeUtf8 $ T.pack
                         $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S %Z %Y" 
                         $ utcToZonedTime tz
                         $ d
+quoteValue tz (Data d)     = B64.encode d
 quoteValue _ other        = error $ show other ++ " not supported"
 
 -- Mon Oct 27 20:06:30 CST 2014
@@ -292,43 +321,79 @@ quoteValueType (Bool False) = "bool"
 quoteValueType (Real r)     = "real"
 quoteValueType (Integer i)  = "integer"
 quoteValueType (Date {})    = "date"
+quoteValueType (Data {})    = "data"
 quoteValueType other        = error $ show other ++ " not supported"
 
 ------------------------------------------------------------------------------
 
 openPlist :: FilePath -> IO Plist
 openPlist fileName = do
+    tid <- myThreadId 
     (pty,ph) <- spawnWithPty
                     Nothing
                     False
                     "/usr/libexec/PlistBuddy"
                     ["-x",fileName]
                     (80,24)
+
+    writePty pty "#\n" -- 1 times in 100, you need to poke the plist-buddy
+    _ <- recvReply0 pty True
     attr <- getTerminalAttributes pty
-    setTerminalAttributes pty (attr `withoutMode` EnableEcho) Immediately
-    _ <- recvReply pty 
+    setTerminalAttributes pty ((attr `withoutMode` EnableEcho) `withoutMode` ProcessInput) Immediately
     lock <- newMVar ()
     return $ Plist pty lock ph False
 
-command :: Pty -> MVar () -> ByteString -> IO ByteString
-command pty lock input = do
-         () <- takeMVar lock
-         finally todo $ putMVar lock ()
+command :: Plist -> ByteString -> IO ByteString
+command (Plist pty lock _ d) input = bracket
+           (takeMVar lock)
+           (putMVar lock)
+           todo
   where
-    todo = do
-        when (not $ BS.null input) $  writePty pty input -- quirk of pty's?
-        writePty pty "\n"
-        recvReply pty 
+    write txt = do
+      writePty pty txt
 
-recvReply :: Pty -> IO ByteString
-recvReply pty = readMe []
+    debug msg = when d $ do
+      tid <- myThreadId
+      print (tid,msg)
+
+    todo () = do
+        when (not $ BS.null input) $  write input -- quirk of pty's?
+        write "\n"
+        recvReply pty d
+
+
+recvReply0 :: Pty -> Bool -> IO ByteString
+recvReply0 pty d = readMe []
   where
     prompt = "\r\nCommand: "
 
     readMe rbs = do
-            t <- readPty pty
---            print t
-            testMe (t : rbs)
+            t <- tryReadPty pty
+            case t of
+              Left {} -> do
+                readMe rbs
+              Right v -> testMe (v : rbs)
+
+    testMe rbs | "#\r\nCommand: Unrecognized Command\r\nCommand: " == bs
+               = return $ ""
+               | "Command: #\r\nUnrecognized Command\r\nCommand: " == bs
+               = return $ ""
+               | otherwise
+               = readMe rbs
+      where
+              bs = rbsToByteString rbs
+
+recvReply :: Pty -> Bool -> IO ByteString
+recvReply pty d = readMe []
+  where
+    prompt = "\r\nCommand: "
+
+    readMe rbs = do
+            t <- tryReadPty pty
+            case t of
+              Left {} -> do
+                readMe rbs
+              Right v -> testMe (v : rbs)
 
     testMe rbs | prompt `isSuffixOf` rbs
                = return $ BS.take (BS.length bs - BS.length prompt) bs
@@ -353,6 +418,8 @@ debug :: (Show a) => a -> PlistBuddy ()
 debug a = do
         Plist _ _ _ d <- ask
         when d $ do
-                liftIO $ print a
+                liftIO $ do
+                  tid <- myThreadId
+                  print (tid,a)
                 
                 
