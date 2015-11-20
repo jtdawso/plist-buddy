@@ -292,7 +292,7 @@ data Value  = String Text
             | Integer Integer
             | Date UTCTime
             | Data ByteString
-        deriving (Show, Read, Eq, Ord)
+        deriving (Show, Read)
 
 quoteValue :: TimeZone -> Value -> ByteString
 quoteValue _  (String txt) = quote txt
