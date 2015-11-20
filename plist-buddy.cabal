@@ -41,8 +41,11 @@ test-suite test-plist-buddy
                      , plist-buddy == 0.1.0.0
                      , bytestring == 0.10.*
                      , mtl >=2.2 && <2.3
+                     , hspec
                      , process >=1.2 && <1.5
                      , posix-pty == 0.2.*
+                     , QuickCheck == 2.8.*
                      , text      == 1.2.*
                      , time      == 1.5.*
   default-language:    Haskell2010  
+  GHC-options:         -threaded
