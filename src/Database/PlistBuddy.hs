@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
 module Database.PlistBuddy 
         ( -- * Remote Monad
           PlistBuddy()
@@ -47,6 +47,8 @@ import Text.XML.Light as X
 
 import Data.Time
 import Data.Either(either)
+
+import GHC.Generics
 
 ------------------------------------------------------------------------------
 
@@ -293,7 +295,7 @@ data Value  = String Text
             | Integer Integer
             | Date UTCTime
             | Data ByteString
-        deriving (Show, Read)
+        deriving (Show, Read, Generic)
 
 quoteValue :: TimeZone -> Value -> ByteString
 quoteValue _  (String txt) = quote txt
