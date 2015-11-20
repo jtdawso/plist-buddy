@@ -2,11 +2,71 @@
 import Database.PlistBuddy 
 
 import Data.Monoid
-import Data.Text(Text)
+import Data.Text(Text,pack)
 import Data.Text.IO as TIO
 import Data.Time
+import qualified Data.ByteString as BS
 
-main = do
+import Test.Hspec
+import Test.Hspec.QuickCheck
+import Test.QuickCheck
+import Control.Exception (evaluate, bracket)
+
+import qualified System.IO as IO
+import System.Timeout
+import Control.Concurrent (threadDelay)
+import System.Mem
+
+import Data.List (sortBy)
+
+clearDB :: IO ()
+clearDB = do
+  TIO.writeFile "test.plist" "{}" 
+  performMajorGC
+
+openConnection :: IO Plist
+openConnection = 
+--    debugOn <$> 
+    openPlist "test.plist"
+        
+closeConnection :: Plist -> IO ()
+closeConnection d = do
+    send d $ exit
+
+-- only for tests that write then read
+withPlistConnection :: (Plist -> IO ()) -> IO ()
+withPlistConnection = bracket openConnection closeConnection
+
+main :: IO ()
+main = hspec $ beforeAll clearDB $ do
+  describe "inital plist" $  modifyMaxSuccess (\ x -> 100) $ do
+
+    it "check initial dict is an dictionary" $ withPlistConnection $ \ d -> do
+      r0 <- send d $ get []
+      r0 `shouldBe` Dict []
+
+    it "check reset to array" $ withPlistConnection $ \ d -> do
+      _ <- send d $ clear (Array [])
+      r0 <- send d $ get []
+      r0 `shouldBe` Array []
+      
+    it "check reset to back to an dict" $ withPlistConnection $ \ d -> do
+      _ <- send d $ clear (Array [])
+      _ <- send d $ clear (Dict [])
+      r0 <- send d $ get []
+      r0 `shouldBe` Dict []
+
+    it "check adding a value at top level" $ 
+      property $ \ (v :: Value) -> withPlistConnection $ \ d -> do
+        _ <- send d $ add ["I1"] v
+        r0 <- send d $ get []
+        r0 `shouldBe` Dict [("I1",v)]
+
+
+main2 = do
+        IO.hSetBuffering IO.stdout IO.NoBuffering
+        IO.hSetBuffering IO.stderr IO.NoBuffering
+        IO.hSetBuffering IO.stdin  IO.NoBuffering
         TIO.writeFile "test.plist" "{}"
 
         d <- openPlist "test.plist"
@@ -204,8 +264,65 @@ main = do
         check "check for date storage" (abs (diffUTCTime now r0) < 1) $ True
         _ <- send d $ exit
 
+        d <- debugOn <$> openPlist "test.plist"
+
+{-
+	send d $ add ["S6"] (Data $ BS.pack $ [10..20])
+
+        Data r0 <- send d $ get ["S6"]
+        
+        print r0
+        _ <- send d $ exit
+-}
+
+
+
+
         return ()
 
 
 check :: (Eq a, Show a) => Text -> a -> a -> IO ()
 check msg t1 t2 = if t1 /= t2 then fail ("check failed: " ++ show (msg,t1,t2)) else TIO.putStrLn msg
+
+
+instance Arbitrary Value where
+    arbitrary = sized $ \ n -> arbitraryValue n
+    
+arbitraryValue :: Int -> Gen Value
+arbitraryValue 0 = oneof 
+    [ Integer <$> arbitrary
+    , String  <$> arbitraryText
+    , Bool    <$> arbitrary
+    , Real    <$> arbitrary
+--    , Date    <$> arbitraryDate
+--    , Data    <$> arbitraryData -- not supported yet
+    ]
+arbitraryValue n = arbitraryValue 0 
+
+arbitraryDate :: Gen UTCTime
+arbitraryDate =
+  UTCTime <$> ((\ d -> addDays d (fromGregorian 1970 1 1))
+                  <$> choose (0,100 * 365)
+              )
+          <*> (fromInteger <$> choose (0,60 * 60 * 24 - 1))
+        
+arbitraryText :: Gen Text
+arbitraryText = sized $ \ n -> pack <$> (vectorOf (n`div`10) $ elements ('\n':[' '..'~']))
+
+arbitraryData :: Gen BS.ByteString
+arbitraryData = sized $ \ n -> BS.pack <$> (vectorOf (n`div`10) $ elements ([32..126]))
+
+instance Eq Value where
+  (==) = eqValue
+
+eqValue :: Value -> Value -> Bool
+eqValue (String s1) (String s2) = s1 == s2
+eqValue (Array a1)  (Array a2)  = a1 == a2
+eqValue (Dict d1)   (Dict d2)   = sortBy f d1 == sortBy f d2  -- order should not matter
+  where f (a,_) (b,_) = a `compare` b
+eqValue (Bool a1)   (Bool a2)   = a1 == a2
+eqValue (Real a1)   (Real a2)   = abs (a1 - a2) < 1e-3
+eqValue (Integer a1) (Integer a2) = a1 == a2
+eqValue (Date d1)   (Date d2)      = d1 == d2
+eqValue (Data d1)   (Data d2)      = d1 == d2
+eqValue _ _ = False
