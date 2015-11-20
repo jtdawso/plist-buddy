@@ -57,11 +57,18 @@ main = hspec $ beforeAll clearDB $ do
       r0 `shouldBe` Dict []
 
     it "check adding a value at top level" $ 
-      property $ \ (v :: Value) -> withPlistConnection $ \ d -> do
-        _ <- send d $ add ["I1"] v
+      property $ \ (Label lbl) (OneValue v) -> withPlistConnection $ \ d -> do
+        _ <- send d $ add [lbl] v
         r0 <- send d $ get []
-        r0 `shouldBe` Dict [("I1",v)]
+        r0 `shouldBe` Dict [(lbl,v)]
 
+    it "check adding then setting a value at top level" $ 
+      property $ \ (Label lbl) (PrimValue v1) (PrimValue v2) -> valueType v1 == valueType v2 ==>
+        withPlistConnection $ \ d -> do
+          _ <- send d $ add [lbl] v1
+          _ <- send d $ set [lbl] v2
+          r0 <- send d $ get []
+          r0 `shouldBe` Dict [(lbl,v2)]
 
 main2 = do
         IO.hSetBuffering IO.stdout IO.NoBuffering
