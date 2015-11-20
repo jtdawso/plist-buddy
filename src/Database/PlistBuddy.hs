@@ -19,6 +19,7 @@ module Database.PlistBuddy
         , delete
         -- * Other types
         , Value(..)
+        , valueType
         , debugOn
         ) where
 
@@ -123,9 +124,9 @@ clear :: Value -> PlistBuddy ()
 clear value = do
         plist@(Plist pty lock _ _) <- ask
         ty <- case value of
-                     Array [] -> return $ quoteValueType value
+                     Array [] -> return $ valueType value
                      Array _  -> fail "add: array not empty"
-                     Dict []  -> return $ quoteValueType value
+                     Dict []  -> return $ valueType value
                      Dict _   -> fail "add: dict not empty"
                      _        -> fail "adding a non dict/array to the root path"
         res <- liftIO $ command plist $ "Clear " <> ty
@@ -227,7 +228,7 @@ set :: [Text] -> Value -> PlistBuddy ()
 set []    value = fail "Can not set empty path"
 set entry value = do
         tz <- liftIO $ getCurrentTimeZone
-        debug ("set",entry,value,quoteValue tz value,quoteValueType value)
+        debug ("set",entry,value,quoteValue tz value,valueType value)
         plist@(Plist pty lock _ _) <- ask
         res <- liftIO $ command plist $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> quoteValue tz value 
@@ -241,7 +242,7 @@ add :: [Text] -> Value -> PlistBuddy ()
 add [] value = fail "Can not add to an empty path"
 add entry value = do
         tz <- liftIO $ getCurrentTimeZone
-        debug ("add",entry,value,quoteValue tz value,quoteValueType value)
+        debug ("add",entry,value,quoteValue tz value,valueType value)
         plist@(Plist pty lock _ _) <- ask
         suffix <- case value of
                      Array [] -> return ""
@@ -251,7 +252,7 @@ add entry value = do
                      _ -> return $ " " <> quoteValue tz value
 
         res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
-                                      <> " " <> quoteValueType value
+                                      <> " " <> valueType value
                                       <> suffix
         case res of
           "" -> return ()
@@ -312,17 +313,16 @@ quoteValue _ other        = error $ show other ++ " not supported"
 
 -- Mon Oct 27 20:06:30 CST 2014
 
-quoteValueType :: Value -> ByteString
-quoteValueType (String txt) = "string"
-quoteValueType (Array {})   = "array"
-quoteValueType (Dict {})    = "dict"
-quoteValueType (Bool True)  = "bool"
-quoteValueType (Bool False) = "bool"
-quoteValueType (Real r)     = "real"
-quoteValueType (Integer i)  = "integer"
-quoteValueType (Date {})    = "date"
-quoteValueType (Data {})    = "data"
-quoteValueType other        = error $ show other ++ " not supported"
+valueType :: Value -> ByteString
+valueType (String txt) = "string"
+valueType (Array {})   = "array"
+valueType (Dict {})    = "dict"
+valueType (Bool True)  = "bool"
+valueType (Bool False) = "bool"
+valueType (Real r)     = "real"
+valueType (Integer i)  = "integer"
+valueType (Date {})    = "date"
+valueType (Data {})    = "data"
 
 ------------------------------------------------------------------------------
 
