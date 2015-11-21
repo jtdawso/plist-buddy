@@ -43,6 +43,7 @@ import Data.Monoid ((<>))
 import System.Process
 import System.IO
 import System.Posix.Pty
+import System.Timeout
 
 import Text.XML.Light as X
 
@@ -414,17 +415,29 @@ isSuffixOf bs rbs = bs `BS.isSuffixOf` rbsToByteString rbs
 
 myWritePty :: Pty -> ByteString -> IO ()
 myWritePty pty msg = do
-  threadWaitWritePty pty
-  writePty pty msg
+  r <- myTimeout $ do
+      threadWaitWritePty pty
+      writePty pty msg
+  case r of
+    Just () -> return ()
+    Nothing -> do
+      print "timeout when writing"
+      error "timeout when writing"
 
 myReadPty :: Pty -> IO ByteString
 myReadPty pty = do
-  threadWaitReadPty pty
-  r <- Just <$> tryReadPty pty
+  r <- myTimeout $ do
+      threadWaitReadPty pty
+      tryReadPty pty
   case r of
     Just (Left {}) -> myReadPty pty
     Just (Right v) -> return v
-    Nothing        -> error $ "timeout"
+    Nothing        -> do
+      print $ "timeout when reading"
+      error $ "timeout when reading"
+
+myTimeout :: IO a -> IO (Maybe a)
+myTimeout = timeout (1000 * 1000)
 
 -----------------------------
 
