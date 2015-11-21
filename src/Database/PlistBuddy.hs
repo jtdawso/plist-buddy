@@ -21,6 +21,8 @@ module Database.PlistBuddy
         , Value(..)
         , valueType
         , debugOn
+         -- * Exception
+        , PlistBuddyException(..)
         ) where
 
 import Control.Concurrent
@@ -314,7 +316,6 @@ quoteValue tz (Date d)     = E.encodeUtf8 $ T.pack
                         $ utcToZonedTime tz
                         $ d
 quoteValue tz (Data d)     = B64.encode d
-quoteValue _ other        = error $ show other ++ " not supported"
 
 -- Mon Oct 27 20:06:30 CST 2014
 
@@ -421,8 +422,7 @@ myWritePty pty msg = do
   case r of
     Just () -> return ()
     Nothing -> do
-      print "timeout when writing"
-      error "timeout when writing"
+      throw $ PlistBuddyException "timeout when writing"
 
 myReadPty :: Pty -> IO ByteString
 myReadPty pty = do
@@ -433,13 +433,20 @@ myReadPty pty = do
     Just (Left {}) -> myReadPty pty
     Just (Right v) -> return v
     Nothing        -> do
-      print $ "timeout when reading"
-      error $ "timeout when reading"
+      throw $ PlistBuddyException "timeout when reading"
 
 myTimeout :: IO a -> IO (Maybe a)
 myTimeout = timeout (1000 * 1000)
 
 -----------------------------
+
+data PlistBuddyException = PlistBuddyException String
+    deriving (Show, Generic)
+
+instance Exception PlistBuddyException
+
+-----------------------------
+
 
 debug :: (Show a) => a -> PlistBuddy ()
 debug a = do
