@@ -2,6 +2,7 @@
 import Database.PlistBuddy 
 
 import Data.Monoid
+import Control.Monad (when)
 import Data.Text(Text,pack)
 import Data.Text.IO as TIO
 import Data.Time
@@ -17,70 +18,100 @@ import System.Timeout
 import Control.Concurrent (threadDelay)
 import System.Mem
 
-import Data.List (sortBy, nub, transpose)
+import Data.List (sortBy, sort, nub, transpose,lookup)
 
 import GHC.Generics
+import Control.Monad.Reader
+
 
 clearDB :: IO ()
 clearDB = do
   TIO.writeFile "test.plist" "{}" 
-  performMajorGC
 
 openConnection :: IO Plist
-openConnection = 
---    debugOn <$> 
-    openPlist "test.plist"
+openConnection = do
+    d <- openPlist "test.plist"
+    send d $ clear (Dict [])
+    return -- $ debugOn 
+      d
         
 closeConnection :: Plist -> IO ()
-closeConnection d = do
-    send d $ exit
+closeConnection d = send d $ exit
 
 -- only for tests that write then read
 withPlistConnection :: (Plist -> IO ()) -> IO ()
 withPlistConnection = bracket openConnection closeConnection
 
 main :: IO ()
-main = hspec $ beforeAll clearDB $ do
-  describe "inital plist" $ do  -- modifyMaxSuccess (\ x -> 100) $ do
+main = hspec $ do
+  beforeAll clearDB $ do
+    describe "inital plist" $ modifyMaxSuccess (\ x -> 100) $ do
 
-    it "check initial dict is an dictionary" $ withPlistConnection $ \ d -> do
-      r0 <- send d $ get []
-      r0 `shouldBe` Dict []
+      it "check initial dict is an dictionary" $ withPlistConnection $ \ d -> do
+        r0 <- send d $ get []
+        r0 `shouldBe` Dict []
 
-    it "check reset to array" $ withPlistConnection $ \ d -> do
-      _ <- send d $ clear (Array [])
-      r0 <- send d $ get []
-      r0 `shouldBe` Array []
+      it "check reset to array" $ withPlistConnection $ \ d -> do
+        _ <- send d $ clear (Array [])
+        r0 <- send d $ get []
+        r0 `shouldBe` Array []
       
-    it "check reset to back to an dict" $ withPlistConnection $ \ d -> do
-      _ <- send d $ clear (Array [])
-      _ <- send d $ clear (Dict [])
-      r0 <- send d $ get []
-      r0 `shouldBe` Dict []
-
-    it "check adding a value at top level" $ 
-      property $ \ (Label lbl) (OneValue v) -> withPlistConnection $ \ d -> do
-        _ <- send d $ add [lbl] v
+      it "check reset to back to an dict" $ withPlistConnection $ \ d -> do
+        _ <- send d $ clear (Array [])
+        _ <- send d $ clear (Dict [])
         r0 <- send d $ get []
-        r0 `shouldBe` Dict [(lbl,v)]
+        r0 `shouldBe` Dict []
 
-    it "check adding then setting a value at top level" $ 
-      property $ \ (Label lbl) (PrimValue v1) (PrimValue v2) -> valueType v1 == valueType v2 ==>
-        withPlistConnection $ \ d -> do
-          _ <- send d $ add [lbl] v1
-          _ <- send d $ set [lbl] v2
+      it "check adding a value at top level" $ 
+        property $ \ (Label lbl) (OneValue v) -> withPlistConnection $ \ d -> do
+          _ <- send d $ add [lbl] v
           r0 <- send d $ get []
-          r0 `shouldBe` Dict [(lbl,v2)]
+          r0 `shouldBe` Dict [(lbl,v)]
 
-    it "populate a DB" $ 
-      property $ \ (DictValue v) -> withPlistConnection $ \ d -> do
-        send d $ populateDict v
-        r0 <- send d $ get []
-        r0 `shouldBe` v
+      it "check adding then setting a value at top level" $ 
+        property $ \ (Label lbl) (PrimValue v1) (PrimValue v2) -> valueType v1 == valueType v2 ==>
+          withPlistConnection $ \ d -> do
+            _ <- send d $ add [lbl] v1
+            _ <- send d $ set [lbl] v2
+            r0 <- send d $ get []
+            r0 `shouldBe` Dict [(lbl,v2)]
 
+      it "populate a DB" $ 
+        property $ \ (DictValue v) -> withPlistConnection $ \ d -> do
+          r0 <- send d $ do
+            populateDict v
+            get []
+          r0 `shouldBe` v
+{-
+      it "test deeper get" $ 
+        property $ \ (DictValue v) -> 
+          forAll (arbitraryReadPath v) $ \ (Path ps) ->
+            withPlistConnection $ \ d -> do
+              send d $ populateDict v
+              r0 <- send d $ get ps
+              r0 `shouldBe` v
+
+-}
+
+  beforeAll clearDB $ do
+    describe "plist modification" $ do  -- modifyMaxSuccess (\ x -> 100) $ do
+
+      it "test save of DB" $ 
+        property $ \ (DictValue v) -> do
+          d <- openPlist "test.plist"
+          send d $ clear (Dict [])  -- clear dict
+          send d $ do
+            populateDict v
+            save
+            exit
+          d <- openPlist "test.plist"
+          r0 <- send d $ get []
+          send d $ exit
+          r0 `shouldBe` v
 
 populateDict :: Value -> PlistBuddy ()
-populateDict (Dict xs) = sequence_ [ populate (Path $ [i]) v | (i,v) <- xs ]
+populateDict (Dict xs) = 
+   do sequence_ [ populate (Path $ [i]) v | (i,v) <- xs ]
 populateDict _ = error "expecting a Dict"
   
 populate :: Path -> Value -> PlistBuddy ()
@@ -92,8 +123,8 @@ populate (Path ps) val =
     Array vs -> do
       add ps (Array [])
       sequence_ [ populate (Path $ ps ++ [pack (show i)]) v | (i,v) <- [0..] `zip` vs ]
-    _ -> add ps val
-
+    _ -> do
+      add ps val
 
 main2 = do
         IO.hSetBuffering IO.stdout IO.NoBuffering
@@ -365,9 +396,9 @@ eqValue (Date d1)    (Date d2)    = d1 == d2
 eqValue (Data d1)    (Data d2)    = d1 == d2
 eqValue _ _ = False
 
-
 ---------------------------------------
 
+---------------------------------------
 valueShrink :: Value -> [Value]
 valueShrink (Dict []) = []
 valueShrink (Dict [(lbl,x)]) = [x]
@@ -433,9 +464,35 @@ instance Arbitrary Label where
                 [ elements (['0'..'9'] ++ ['a'..'z'] ++ ['A'..'Z'])
                 | _ <- [0..n `mod` 32]
                 ]
+
 newtype Path = Path [Text] -- non-empty
   deriving (Show,Generic)
 
 instance Arbitrary Path where
   arbitrary = Path <$> return []
 
+
+newtype ReadPath = ReadPath [Text] -- can be empty, must be valid
+  deriving (Show,Generic)
+
+arbitraryReadPath :: Value -> Gen Path
+arbitraryReadPath (Dict _) = return (Path [])
+
+compareValue :: Path -> Value -> Value -> String
+compareValue (Path ps) v1 v2 | valueType v1 /= valueType v2 = "different types : " ++ show (ps,v1,v2)
+compareValue (Path ps) (Dict ds1) (Dict ds2) 
+  | nm1 /= nm2 = "different names of fields in dict : " ++ show (ps,nm1,nm2)
+  | otherwise = concat [ case (lookup nm ds1,lookup nm ds2) of
+                          (Just v1,Just v2) -> compareValue (Path (ps ++ [nm])) v1 v2 
+                          _ -> "internal error in dict compare " ++ show ps
+                       | nm <- nm1 ]
+ where
+   nm1 = sort (nub (map fst ds1))
+   nm2 = sort (nub (map fst ds2))
+
+compareValue (Path ps) (Array ds1) (Array ds2) 
+  | length ds1 /= length ds2 = "different lengths of array : " ++ show (ps,length ds1,length ds2)
+  | otherwise = concat [ compareValue (Path (ps ++ [pack (show i)])) d1 d2 | (i,d1,d2) <- zip3 [0..] ds1 ds2 ]
+compareValue (Path ps) v1 v2 
+  | v1 /= v2 = "different values : " ++ show (ps,v1,v2)
+  | otherwise = ""
