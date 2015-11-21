@@ -30,6 +30,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Except
 
+import Data.Char (ord)
 import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Text.Encoding as E
@@ -49,6 +50,7 @@ import Data.Time
 import Data.Either(either)
 
 import GHC.Generics
+import Debug.Trace
 
 ------------------------------------------------------------------------------
 
@@ -143,7 +145,7 @@ get entry = do
         plist@(Plist pty lock _ _) <- ask
         res <- liftIO $ command plist $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
         -- idea: print in XML (-x flag), and decode in more detail
-        case parseXMLDoc res of
+        case parseXMLDoc (BS.filter (/= fromIntegral (ord '\r')) res) of
           Nothing -> fail "get: early parse error"
           Just (Element _ _ xml _) -> case parse (onlyElems xml) of
                                         Nothing -> fail ("get: late parse error : " ++ show (onlyElems xml))
@@ -352,6 +354,7 @@ command (Plist pty lock _ d) input = bracket
            todo
   where
     write txt = do
+      when d $ print ("write",txt)
       writePty pty txt
 
     debug msg = when d $ do
@@ -361,7 +364,9 @@ command (Plist pty lock _ d) input = bracket
     todo () = do
         when (not $ BS.null input) $  write input -- quirk of pty's?
         write "\n"
-        recvReply pty d
+        r <- recvReply pty d
+        when d $ print ("read",r)
+        return r
 
 
 recvReply0 :: Pty -> Bool -> IO ByteString
