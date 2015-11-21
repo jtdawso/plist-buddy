@@ -91,17 +91,17 @@ main = hspec $ do
             get []
           r0 `shouldBe` v
 
-{-
+
       it "test deeper get" $ 
         property $ \ (DictValue v) -> 
-          forAll (arbitraryReadPath v) $ \ (Path ps) ->
+          forAll (arbitraryReadPath v) $ \ (Path ps,v') -> do
             withPlistConnection $ \ d -> do
+              print (ps)
               send d $ populateDict v
               r0 <- send d $ get ps
-              r0 `shouldBe` v
--}
+              r0 `shouldBe` v'
 
-        
+
   beforeAll clearDB $ do
     describe "plist modification" $ do  
       it "test save of DB" $ 
@@ -116,7 +116,7 @@ main = hspec $ do
           r0 <- send d $ get []
           send d $ exit
           r0 `shouldBe` v
-        
+       
 populateDict :: Value -> PlistBuddy ()
 populateDict (Dict xs) = 
    do sequence_ [ populate (Path $ [i]) v | (i,v) <- xs ]
@@ -354,8 +354,7 @@ main2 = do
 
 check :: (Eq a, Show a) => Text -> a -> a -> IO ()
 check msg t1 t2 = if t1 /= t2 then fail ("check failed: " ++ show (msg,t1,t2)) else TIO.putStrLn msg
-
-    
+ 
 arbitraryValue :: Int -> Gen Value
 arbitraryValue n = frequency 
   [(7,(\ (PrimValue v) -> v) <$> arbitrary),
@@ -483,8 +482,19 @@ instance Arbitrary Path where
 newtype ReadPath = ReadPath [Text] -- can be empty, must be valid
   deriving (Show,Generic)
 
-arbitraryReadPath :: Value -> Gen Path
-arbitraryReadPath (Dict _) = return (Path [])
+arbitraryReadPath :: Value -> Gen (Path,Value)
+arbitraryReadPath v@(Dict xs) = do
+    stop <- frequency [(5,return False),(1,return True)]
+    if stop || null xs
+    then return (Path [],v)
+    else do nm <- elements (map fst xs)
+            case lookup nm xs of
+              Just v' -> do
+                (Path ps,vr) <- arbitraryReadPath v'
+                return (Path (nm:ps),vr)
+              Nothing -> error "arbitraryReadPath internal error"
+arbitraryReadPath v = return (Path [],v)
+
 
 compareValue :: Path -> Value -> Value -> String
 compareValue (Path ps) v1 v2 | valueType v1 /= valueType v2 = "different types : " ++ show (ps,v1,v2)
