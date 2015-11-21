@@ -54,6 +54,7 @@ import Data.Either(either)
 
 import GHC.Generics
 import Debug.Trace
+import System.IO.Error (catchIOError)
 
 ------------------------------------------------------------------------------
 
@@ -77,7 +78,7 @@ debugOn :: Plist -> Plist
 debugOn (Plist pty lock h _) = Plist pty lock h True
 
 send :: Plist -> PlistBuddy a -> IO a
-send dev (PlistBuddy m) = do
+send dev (PlistBuddy m) = handleIOErrors $ do
         v <- runReaderT (runExceptT m) dev
         case v of
           Left msg  -> fail $ T.unpack msg
@@ -332,8 +333,12 @@ valueType (Data {})    = "data"
 
 ------------------------------------------------------------------------------
 
+handleIOErrors :: IO a -> IO a
+handleIOErrors m =
+  m `catchIOError` \ e -> throw $ PlistBuddyException $ "IO error, " ++ show e
+
 openPlist :: FilePath -> IO Plist
-openPlist fileName = do
+openPlist fileName = handleIOErrors $ do
     tid <- myThreadId 
     (pty,ph) <- spawnWithPty
                     Nothing
