@@ -340,7 +340,7 @@ openPlist fileName = do
                     ["-x",fileName]
                     (80,24)
 
-    writePty pty "#\n" -- 1 times in 100, you need to poke the plist-buddy
+    myWritePty pty "#\n" -- 1 times in 100, you need to poke the plist-buddy
     _ <- recvReply0 pty True
     attr <- getTerminalAttributes pty
     setTerminalAttributes pty ((attr `withoutMode` EnableEcho) `withoutMode` ProcessInput) Immediately
@@ -355,19 +355,16 @@ command (Plist pty lock _ d) input = bracket
   where
     write txt = do
       when d $ print ("write",txt)
-      writePty pty txt
+      myWritePty pty txt
 
     debug msg = when d $ do
       tid <- myThreadId
       print (tid,msg)
 
     todo () = do
---        print "start todo"
-        when (not $ BS.null input) $  write input -- quirk of pty's?
-        write "\n"
+        write (input <> "\n")
         r <- recvReply pty d
         when d $ print ("read",r)
---        print "done todo"
         return $ r
 
 
@@ -414,6 +411,11 @@ rbsToByteString = BS.concat . reverse
           
 isSuffixOf :: ByteString -> RBS -> Bool
 isSuffixOf bs rbs = bs `BS.isSuffixOf` rbsToByteString rbs
+
+myWritePty :: Pty -> ByteString -> IO ()
+myWritePty pty msg = do
+  threadWaitWritePty pty
+  writePty pty msg
 
 myReadPty :: Pty -> IO ByteString
 myReadPty pty = do
