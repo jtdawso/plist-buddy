@@ -377,11 +377,8 @@ recvReply0 pty d = readMe []
     prompt = "\nCommand: "
 
     readMe rbs = do
-            t <- tryReadPty pty
-            case t of
-              Left {} -> do
-                readMe rbs
-              Right v -> testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
+            v <- myReadPty pty
+            testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
 
     testMe rbs | "#\nCommand: Unrecognized Command\nCommand: " == bs
                = return $ ""
@@ -398,15 +395,8 @@ recvReply pty d = readMe []
     prompt = "\nCommand: "
 
     readMe rbs = do
---            print ("recvReply, waiting",rbs)
-            threadWaitReadPty pty
---            print ("waited")
-            t <- tryReadPty pty
---            print ("recv'dReply",t)
-            case t of
-              Left {} -> do
-                readMe rbs
-              Right v -> testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
+            v <- myReadPty pty
+            testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
 
     testMe rbs | prompt `isSuffixOf` rbs
                = return $ BS.take (BS.length bs - BS.length prompt) bs
@@ -424,6 +414,15 @@ rbsToByteString = BS.concat . reverse
           
 isSuffixOf :: ByteString -> RBS -> Bool
 isSuffixOf bs rbs = bs `BS.isSuffixOf` rbsToByteString rbs
+
+myReadPty :: Pty -> IO ByteString
+myReadPty pty = do
+  threadWaitReadPty pty
+  r <- Just <$> tryReadPty pty
+  case r of
+    Just (Left {}) -> myReadPty pty
+    Just (Right v) -> return v
+    Nothing        -> error $ "timeout"
 
 -----------------------------
 
