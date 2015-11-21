@@ -362,28 +362,30 @@ command (Plist pty lock _ d) input = bracket
       print (tid,msg)
 
     todo () = do
+--        print "start todo"
         when (not $ BS.null input) $  write input -- quirk of pty's?
         write "\n"
         r <- recvReply pty d
         when d $ print ("read",r)
-        return r
+--        print "done todo"
+        return $ r
 
 
 recvReply0 :: Pty -> Bool -> IO ByteString
 recvReply0 pty d = readMe []
   where
-    prompt = "\r\nCommand: "
+    prompt = "\nCommand: "
 
     readMe rbs = do
             t <- tryReadPty pty
             case t of
               Left {} -> do
                 readMe rbs
-              Right v -> testMe (v : rbs)
+              Right v -> testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
 
-    testMe rbs | "#\r\nCommand: Unrecognized Command\r\nCommand: " == bs
+    testMe rbs | "#\nCommand: Unrecognized Command\nCommand: " == bs
                = return $ ""
-               | "Command: #\r\nUnrecognized Command\r\nCommand: " == bs
+               | "Command: #\nUnrecognized Command\nCommand: " == bs
                = return $ ""
                | otherwise
                = readMe rbs
@@ -393,14 +395,18 @@ recvReply0 pty d = readMe []
 recvReply :: Pty -> Bool -> IO ByteString
 recvReply pty d = readMe []
   where
-    prompt = "\r\nCommand: "
+    prompt = "\nCommand: "
 
     readMe rbs = do
+--            print ("recvReply, waiting",rbs)
+            threadWaitReadPty pty
+--            print ("waited")
             t <- tryReadPty pty
+--            print ("recv'dReply",t)
             case t of
               Left {} -> do
                 readMe rbs
-              Right v -> testMe (v : rbs)
+              Right v -> testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
 
     testMe rbs | prompt `isSuffixOf` rbs
                = return $ BS.take (BS.length bs - BS.length prompt) bs

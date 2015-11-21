@@ -23,6 +23,7 @@ import Data.List (sortBy, sort, nub, transpose,lookup)
 import GHC.Generics
 import Control.Monad.Reader
 
+import System.Environment
 
 clearDB :: IO ()
 clearDB = do
@@ -43,8 +44,23 @@ withPlistConnection :: (Plist -> IO ()) -> IO ()
 withPlistConnection = bracket openConnection closeConnection
 
 main :: IO ()
-main = hspec $ do
-  beforeAll clearDB $ do
+main = do
+{-
+  [file] <- getArgs
+  let clearDB :: IO ()
+      clearDB = do
+        TIO.writeFile file "{}" 
+
+      openConnection :: IO Plist
+      openConnection = do
+          d <- openPlist file
+          send d $ clear (Dict [])
+          return -- $ debugOn 
+            d
+
+-}
+  withArgs [] $ hspec $ do
+   beforeAll clearDB $ do
     describe "inital plist" $ modifyMaxSuccess (\ x -> 100) $ do
 
       it "check initial dict is an dictionary" $ withPlistConnection $ \ d -> do
@@ -82,7 +98,7 @@ main = hspec $ do
             populateDict v
             get []
           r0 `shouldBe` v
-{-
+
       it "test deeper get" $ 
         property $ \ (DictValue v) -> 
           forAll (arbitraryReadPath v) $ \ (Path ps) ->
@@ -91,9 +107,9 @@ main = hspec $ do
               r0 <- send d $ get ps
               r0 `shouldBe` v
 
--}
 
-  beforeAll clearDB $ do
+        
+   beforeAll clearDB $ do
     describe "plist modification" $ do  -- modifyMaxSuccess (\ x -> 100) $ do
 
       it "test save of DB" $ 
@@ -109,6 +125,7 @@ main = hspec $ do
           send d $ exit
           r0 `shouldBe` v
 
+        
 populateDict :: Value -> PlistBuddy ()
 populateDict (Dict xs) = 
    do sequence_ [ populate (Path $ [i]) v | (i,v) <- xs ]
