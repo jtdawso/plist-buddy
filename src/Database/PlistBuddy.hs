@@ -5,8 +5,8 @@ module Database.PlistBuddy
         , openPlist
         , Plist()
         , send
-        , throwError
-        , catchError
+        , throwPlistError
+        , catchPlistError
         -- * The Remote Monad operators
         , help
         , exit
@@ -59,17 +59,23 @@ import System.IO.Error (catchIOError)
 ------------------------------------------------------------------------------
 
 -- | The Remote Monad
-newtype PlistBuddy a = PlistBuddy (ExceptT Text (ReaderT Plist IO) a)
-  deriving (Functor,Applicative, MonadError Text, MonadReader Plist, MonadIO)
+newtype PlistBuddy a = PlistBuddy (ExceptT PlistError (ReaderT Plist IO) a)
+  deriving (Functor,Applicative, Monad, MonadError PlistError, MonadReader Plist, MonadIO)
 
--- We do this by hand so we can get 'fail'
-instance Monad PlistBuddy where
-        PlistBuddy m1 >>= k = PlistBuddy $ do
-                r <- m1
-                let (PlistBuddy m2) = k r
-                m2
-        return = pure
-        fail = throwError . T.pack
+data PlistError = PlistError String 
+ deriving (Show, Eq)
+
+-- | A version of `catchError` with the type specialized to PlistBuddy. Using
+--   this will cause a static error if used on a non-PlistBuddy monad.
+
+catchPlistError :: PlistBuddy a -> (PlistError -> PlistBuddy a) -> PlistBuddy a
+catchPlistError = catchError
+
+-- | Throw a `PlistError`. Uncaught `PlistError` exceptions will
+--   be thrown by `send` as IO Exceptions.
+
+throwPlistError :: PlistError -> PlistBuddy a
+throwPlistError = throwError
 
 -- | The Remote Plist 
 data Plist = Plist Pty (MVar ()) ProcessHandle Bool
@@ -81,16 +87,15 @@ send :: Plist -> PlistBuddy a -> IO a
 send dev (PlistBuddy m) = handleIOErrors $ do
         v <- runReaderT (runExceptT m) dev
         case v of
-          Left msg  -> fail $ T.unpack msg
+          Left (PlistError msg) -> fail  msg  -- an unhandled PlistError turns into an IO fail
           Right val -> return val
-
 
 -- | Returns Help Text
 help :: PlistBuddy Text
 help = do
         plist@(Plist pty lock _ _) <- ask
         res <- liftIO $ command plist "Help"
-        return $ T.filter (/= '\r') $ E.decodeUtf8 $ res
+        return $ E.decodeUtf8 $ res
 
 -- | Exits the program, changes are not saved to the file
 exit :: PlistBuddy ()
@@ -114,7 +119,7 @@ save = do
         res <- liftIO $ command plist "Save"
         case res of
           "Saving..." -> return ()
-          _ -> fail $ "save failed: " <> show res
+          _ -> error $ "save failed: " <> show res
 
 
 -- | Reloads the last saved version of the file
@@ -124,7 +129,7 @@ revert = do
         res <- liftIO $ command plist "Revert"
         case res of
           "Reverting to last saved state..." -> return ()
-          _ -> fail $ "revert failed: " ++ show res
+          _ -> error $ "revert failed: " ++ show res
 
 -- | Clear Type - Clears out all existing entries, and creates root of a value,
 -- where the value is an empty Dict or Array.
@@ -133,28 +138,28 @@ clear value = do
         plist@(Plist pty lock _ _) <- ask
         ty <- case value of
                      Array [] -> return $ valueType value
-                     Array _  -> fail "add: array not empty"
+                     Array _  -> error "add: array not empty"
                      Dict []  -> return $ valueType value
-                     Dict _   -> fail "add: dict not empty"
-                     _        -> fail "adding a non dict/array to the root path"
+                     Dict _   -> error "add: dict not empty"
+                     _        -> error "adding a non dict/array to the root path"
         res <- liftIO $ command plist $ "Clear " <> ty
         case res of
           "Initializing Plist..." -> return ()
           _  -> fail $ "add failed: " ++ show res
 
--- | Print Entry - Gets value of Entry.  Otherwise, gets file 
-get :: [Text] -> PlistBuddy (Maybe Value)
+-- | Print Entry - Gets value of Entry.
+get :: [Text] -> PlistBuddy Value
 get entry = do
         debug ("get",entry)
         plist@(Plist pty lock _ _) <- ask
         res <- liftIO $ command plist $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
         if "Print: Entry, " `BS.isPrefixOf` res && ", Does Not Exist" `BS.isSuffixOf` res
-        then return Nothing -- not found
+        then throwPlistError $ PlistError $ "value not found"
         else case parseXMLDoc (BS.filter (/= fromIntegral (ord '\r')) res) of
-          Nothing -> fail "get: early parse error"
+          Nothing -> error "get: early parse error"
           Just (Element _ _ xml _) -> case parse (onlyElems xml) of
-                                        Nothing -> fail ("get: late parse error : " ++ show (onlyElems xml))
-                                        Just v -> return $ Just v
+                                        Nothing -> error ("get: late parse error : " ++ show (onlyElems xml))
+                                        Just v -> return $  v
   where
         parse :: [Element] -> Maybe Value
         parse [] = Nothing
@@ -234,7 +239,7 @@ get entry = do
 -- | Set Entry Value - Sets the value at Entry to Value
 -- You can not set dictionaries or arrays.
 set :: [Text] -> Value -> PlistBuddy ()
-set []    value = fail "Can not set empty path"
+set []    value = error "Can not set empty path"
 set entry value = do
         tz <- liftIO $ getCurrentTimeZone
         debug ("set",entry,value,quoteValue tz value,valueType value)
@@ -243,21 +248,21 @@ set entry value = do
                                       <> " " <> quoteValue tz value 
         case res of
           "" -> return ()
-          _  -> fail $ "set failed: " ++ show res
+          _  -> throwPlistError $ PlistError $ "set failed: " ++ show res
     
 -- | Add Entry Type [Value] - Adds Entry to the plist, with value Value
 -- You can add *empty* dictionaries or arrays.
 add :: [Text] -> Value -> PlistBuddy ()
-add [] value = fail "Can not add to an empty path"
+add [] value = error "Can not add to an empty path"
 add entry value = do
         tz <- liftIO $ getCurrentTimeZone
         debug ("add",entry,value,quoteValue tz value,valueType value)
         plist@(Plist pty lock _ _) <- ask
         suffix <- case value of
                      Array [] -> return ""
-                     Array _ -> fail "add: array not empty"
+                     Array _ -> error "add: array not empty"
                      Dict [] -> return ""
-                     Dict _ -> fail "add: array not empty"
+                     Dict _ -> error "add: array not empty"
                      _ -> return $ " " <> quoteValue tz value
 
         res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
@@ -265,7 +270,7 @@ add entry value = do
                                       <> suffix
         case res of
           "" -> return ()
-          _  -> fail $ "add failed: " ++ show res
+          _  -> throwPlistError $ PlistError $ "add failed: " ++ show res
 
 -- | Delete Entry - Deletes Entry from the plist
 delete :: [Text] -> PlistBuddy ()
@@ -275,7 +280,7 @@ delete entry = do
         res <- liftIO $ command plist $ "delete " <>  BS.concat [ ":" <> quote e | e <- entry ]
         case res of
           "" -> return ()
-          _  -> fail $ "delete failed: " ++ show res
+          _  -> throwPlistError $ PlistError $ "delete failed: " ++ show res
 
 {-                
 -- Not (yet) supported
@@ -446,6 +451,8 @@ myTimeout = timeout (1000 * 1000)
 
 -----------------------------
 
+-- | 'PlistBuddyException' is for fatal things,
+--  like the sub-process blocks, for some reason.
 data PlistBuddyException = PlistBuddyException String
     deriving (Show, Generic)
 

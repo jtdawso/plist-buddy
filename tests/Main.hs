@@ -3,7 +3,8 @@ import Database.PlistBuddy
 
 import Data.Monoid
 import Control.Monad (when)
-import Data.Text(Text,pack)
+import Data.Text(Text,pack,unpack)
+import qualified Data.Text as T
 import Data.Text.IO as TIO
 import Data.Time
 import qualified Data.ByteString as BS
@@ -25,6 +26,7 @@ import GHC.Generics
 import Control.Monad.Reader
 
 import System.Environment
+import Data.Char (isDigit)
 
 clearDB :: IO ()
 clearDB = do
@@ -56,25 +58,25 @@ main = hspec $ do
     describe "inital plist" $ modifyMaxSuccess (\ x -> 100) $ do
 
       it "check initial dict is an dictionary" $ withPlistConnection $ \ d -> do
-        Just r0 <- send d $ get []
+        r0 <- send d $ get []
         r0 `shouldBe` Dict []
 
       it "check reset to array" $ withPlistConnection $ \ d -> do
         _ <- send d $ clear (Array [])
-        Just r0 <- send d $ get []
+        r0 <- send d $ get []
         r0 `shouldBe` Array []
       
       it "check reset to back to an dict" $ withPlistConnection $ \ d -> do
         _ <- send d $ clear (Array [])
         _ <- send d $ clear (Dict [])
-        Just r0 <- send d $ get []
+        r0 <- send d $ get []
         r0 `shouldBe` Dict []
 
       it "check adding a value at top level" $ 
         property $ \ (Label lbl) (OneValue v) -> withPlistConnection $ \ d -> do
                 debug $ ("add val top",lbl,v)
                 _ <- send d $ add [lbl] v
-                Just r0 <- send d $ get []
+                r0 <- send d $ get []
                 r0 `shouldBe` Dict [(lbl,v)]
 
       it "check adding then setting a value at top level" $ 
@@ -84,13 +86,13 @@ main = hspec $ do
               debug $ ("add then set top",lbl,v1,v2)
               _ <- send d $ add [lbl] v1
               _ <- send d $ set [lbl] v2
-              Just r0 <- send d $ get []
+              r0 <- send d $ get []
               r0 `shouldBe` Dict [(lbl,v2)]
 
       it "populate a DB" $ 
         property $ \ (DictValue v) -> withPlistConnection $ \ d -> do
           debug $ ("populate",v)
-          Just r0 <- send d $ do
+          r0 <- send d $ do
             populateDict v
             get []
           r0 `shouldBe` v
@@ -100,7 +102,7 @@ main = hspec $ do
           forAll (arbitraryReadPath 0.8 v) $ \ (Path ps,v') -> do
             withPlistConnection $ \ d -> do
               send d $ populateDict v
-              Just r0 <- send d $ get ps
+              r0 <- send d $ get ps
               r0 `shouldBe` v'
 
       it "test deepest get" $ 
@@ -108,7 +110,7 @@ main = hspec $ do
           forAll (arbitraryReadPath 1.0 v) $ \ (Path ps,v') -> do
             withPlistConnection $ \ d -> do
               send d $ populateDict v
-              Just r0 <- send d $ get ps
+              r0 <- send d $ get ps
               r0 `shouldBe` v'
 
 
@@ -121,7 +123,7 @@ main = hspec $ do
                 debug (v1,v2,ps)
                 send d $ populateDict v
                 send d $ set ps v2
-                Just r0 <- send d $ get ps
+                r0 <- send d $ get ps
                 r0 `shouldBe` v2
 
       it "test delete" $ 
@@ -132,19 +134,30 @@ main = hspec $ do
 --                print (v1,ps)
                 (r1,parent) <- send d $ do
                   populateDict v
-                  Just r1 <- get ps
-                  Just parent <- get (init ps)
+                  r1 <- get ps
+                  parent <- get (init ps)
                   delete ps
                   return (r1,parent)
                 case parent of
                     Dict {} -> do
-                        r2 <- send d $ get ps
+                        r2 <- send d $ ((Just <$> get ps) `catchPlistError` \ _ -> return Nothing)
                         (r1,r2) `shouldBe` (v1,Nothing)
                     Array xs -> do
                         xs' <- send d $ do
-                          Just (Array xs') <- get (init ps)
+                          Array xs' <- get (init ps)
                           return xs'
                         (r1,length xs) `shouldBe` (v1,length xs' + 1)
+
+      it "check for bad path error handling" $ 
+        property $ \ (DictValue v) (Path p) -> p `notIn` v ==>  withPlistConnection $ \ d -> do
+--          print $ ("bad path",v,p)
+          r <- (send d $ (do
+                  populateDict v
+                  get p
+                  return False) `catchPlistError` \ e -> do
+                    return True)
+
+          r `shouldBe` True
 
 
  -- TODO: 
@@ -161,7 +174,7 @@ main = hspec $ do
             save
             exit
           d <- openPlist "test.plist"
-          Just r0 <- send d $ get []
+          r0 <- send d $ get []
           send d $ exit
           r0 `shouldBe` v
 
@@ -176,7 +189,7 @@ main = hspec $ do
             populateDict v'
             exit
           d <- openPlist "test.plist"
-          Just r0 <- send d $ get []
+          r0 <- send d $ get []
           send d $ exit
           r0 `shouldBe` v
 
@@ -190,7 +203,7 @@ main = hspec $ do
             clear $ Dict []
             populateDict v'
             revert
-            Just r <- get []
+            r <- get []
             exit
             return r
           r0 `shouldBe` v
@@ -212,11 +225,22 @@ populate (Path ps) val =
     _ -> do
       add ps val
 
+
+[] `notIn` _        = False
+(p:ps) `notIn` (Dict xs) = case lookup p xs of
+                        Nothing -> True
+                        Just v -> ps `notIn` v 
+(p:ps) `notIn` (Array vs) 
+                     | T.all isDigit p && not (T.null p) 
+                     = case drop (read (unpack p)) vs of
+                         [] -> False
+                         (v:_) -> ps `notIn` v
+_ `notIn` _          = True
 {-
     -- TO ADD
         -- try get type error
         
-        r <- send d $ ((set ["I1"] (String "foo")>>return "no failed") `catchError` \ msg -> return msg)
+        r <- send d $ ((set ["I1"] (String "foo")>>return "no failed") `catchPlistError` \ msg -> return msg)
         check "check for type error" r $ "set failed: \"Unrecognized Integer Format\""
 
         _ <- send d $ exit
@@ -367,7 +391,7 @@ newtype Path = Path [Text] -- non-empty
   deriving (Show,Generic)
 
 instance Arbitrary Path where
-  arbitrary = Path <$> return []
+  arbitrary = Path <$> (modSized 8 $ \ n -> vectorOf (n+1) ((\ (Label t) -> t) <$> arbitrary))
 
 modSized :: Int -> (Int -> Gen a) -> Gen a
 modSized n k = choose (0,n-1) >>= k
@@ -375,6 +399,8 @@ modSized n k = choose (0,n-1) >>= k
 newtype ReadPath = ReadPath [Text] -- can be empty, must be valid
   deriving (Show,Generic)
 
+instance Arbitrary ReadPath where
+  arbitrary = ReadPath <$> (modSized 8 $ \ n -> vectorOf n ((\ (Label t) -> t) <$> arbitrary))
 
 arbitraryReadPath :: Double -> Value -> Gen (Path,Value)
 arbitraryReadPath n v@(Dict xs) = do
