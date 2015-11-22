@@ -331,8 +331,7 @@ quoteValue (Date d)     = do
                  $ T.pack 
                  $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S %Z %Y" 
                  $ loc
-
-quoteValue (Data d)      = return $ B64.encode d
+quoteValue (Data d)      = return $ quote $ E.decodeUtf8 d
 
 -- Mon Oct 27 20:06:30 CST 2014
 
