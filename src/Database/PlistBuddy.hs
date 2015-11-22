@@ -143,17 +143,18 @@ clear value = do
           _  -> fail $ "add failed: " ++ show res
 
 -- | Print Entry - Gets value of Entry.  Otherwise, gets file 
-get :: [Text] -> PlistBuddy Value
+get :: [Text] -> PlistBuddy (Maybe Value)
 get entry = do
         debug ("get",entry)
         plist@(Plist pty lock _ _) <- ask
         res <- liftIO $ command plist $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
-        -- idea: print in XML (-x flag), and decode in more detail
-        case parseXMLDoc (BS.filter (/= fromIntegral (ord '\r')) res) of
+        if "Print: Entry, " `BS.isPrefixOf` res && ", Does Not Exist" `BS.isSuffixOf` res
+        then return Nothing -- not found
+        else case parseXMLDoc (BS.filter (/= fromIntegral (ord '\r')) res) of
           Nothing -> fail "get: early parse error"
           Just (Element _ _ xml _) -> case parse (onlyElems xml) of
                                         Nothing -> fail ("get: late parse error : " ++ show (onlyElems xml))
-                                        Just v -> return v
+                                        Just v -> return $ Just v
   where
         parse :: [Element] -> Maybe Value
         parse [] = Nothing

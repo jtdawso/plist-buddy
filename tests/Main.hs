@@ -56,25 +56,25 @@ main = hspec $ do
     describe "inital plist" $ modifyMaxSuccess (\ x -> 100) $ do
 
       it "check initial dict is an dictionary" $ withPlistConnection $ \ d -> do
-        r0 <- send d $ get []
+        Just r0 <- send d $ get []
         r0 `shouldBe` Dict []
 
       it "check reset to array" $ withPlistConnection $ \ d -> do
         _ <- send d $ clear (Array [])
-        r0 <- send d $ get []
+        Just r0 <- send d $ get []
         r0 `shouldBe` Array []
       
       it "check reset to back to an dict" $ withPlistConnection $ \ d -> do
         _ <- send d $ clear (Array [])
         _ <- send d $ clear (Dict [])
-        r0 <- send d $ get []
+        Just r0 <- send d $ get []
         r0 `shouldBe` Dict []
 
       it "check adding a value at top level" $ 
         property $ \ (Label lbl) (OneValue v) -> withPlistConnection $ \ d -> do
                 debug $ ("add val top",lbl,v)
                 _ <- send d $ add [lbl] v
-                r0 <- send d $ get []
+                Just r0 <- send d $ get []
                 r0 `shouldBe` Dict [(lbl,v)]
 
       it "check adding then setting a value at top level" $ 
@@ -84,13 +84,13 @@ main = hspec $ do
               debug $ ("add then set top",lbl,v1,v2)
               _ <- send d $ add [lbl] v1
               _ <- send d $ set [lbl] v2
-              r0 <- send d $ get []
+              Just r0 <- send d $ get []
               r0 `shouldBe` Dict [(lbl,v2)]
 
       it "populate a DB" $ 
         property $ \ (DictValue v) -> withPlistConnection $ \ d -> do
           debug $ ("populate",v)
-          r0 <- send d $ do
+          Just r0 <- send d $ do
             populateDict v
             get []
           r0 `shouldBe` v
@@ -100,7 +100,7 @@ main = hspec $ do
           forAll (arbitraryReadPath 0.8 v) $ \ (Path ps,v') -> do
             withPlistConnection $ \ d -> do
               send d $ populateDict v
-              r0 <- send d $ get ps
+              Just r0 <- send d $ get ps
               r0 `shouldBe` v'
 
       it "test deepest get" $ 
@@ -108,7 +108,7 @@ main = hspec $ do
           forAll (arbitraryReadPath 1.0 v) $ \ (Path ps,v') -> do
             withPlistConnection $ \ d -> do
               send d $ populateDict v
-              r0 <- send d $ get ps
+              Just r0 <- send d $ get ps
               r0 `shouldBe` v'
 
 
@@ -121,7 +121,7 @@ main = hspec $ do
                 debug (v1,v2,ps)
                 send d $ populateDict v
                 send d $ set ps v2
-                r0 <- send d $ get ps
+                Just r0 <- send d $ get ps
                 r0 `shouldBe` v2
 
  -- TODO: 
@@ -140,7 +140,7 @@ main = hspec $ do
             save
             exit
           d <- openPlist "test.plist"
-          r0 <- send d $ get []
+          Just r0 <- send d $ get []
           send d $ exit
           r0 `shouldBe` v
 
@@ -155,7 +155,7 @@ main = hspec $ do
             populateDict v'
             exit
           d <- openPlist "test.plist"
-          r0 <- send d $ get []
+          Just r0 <- send d $ get []
           send d $ exit
           r0 `shouldBe` v
 
@@ -169,7 +169,7 @@ main = hspec $ do
             clear $ Dict []
             populateDict v'
             revert
-            r <- get []
+            Just r <- get []
             exit
             return r
           r0 `shouldBe` v
