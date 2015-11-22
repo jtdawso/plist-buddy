@@ -84,7 +84,7 @@ debugOn :: Plist -> Plist
 debugOn (Plist pty lock h _) = Plist pty lock h True
 
 send :: Plist -> PlistBuddy a -> IO a
-send dev (PlistBuddy m) = handleIOErrors $ do
+send dev (PlistBuddy m) = do
         v <- runReaderT (runExceptT m) dev
         case v of
           Left (PlistError msg) -> fail  msg  -- an unhandled PlistError turns into an IO fail
