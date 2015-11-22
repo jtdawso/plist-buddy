@@ -72,36 +72,59 @@ main = hspec $ do
 
       it "check adding a value at top level" $ 
         property $ \ (Label lbl) (OneValue v) -> withPlistConnection $ \ d -> do
+                debug $ ("add val top",lbl,v)
                 _ <- send d $ add [lbl] v
                 r0 <- send d $ get []
                 r0 `shouldBe` Dict [(lbl,v)]
 
       it "check adding then setting a value at top level" $ 
-        property $ \ (Label lbl) (PrimValue v1) (PrimValue v2) -> valueType v1 == valueType v2 ==>
-          withPlistConnection $ \ d -> do
-            _ <- send d $ add [lbl] v1
-            _ <- send d $ set [lbl] v2
-            r0 <- send d $ get []
-            r0 `shouldBe` Dict [(lbl,v2)]
+        property $ \ (Label lbl) (PrimValue v1) ->
+          forAll (arbitrarySameType v1) $ \ v2 ->
+            withPlistConnection $ \ d -> do
+              debug $ ("add then set top",lbl,v1,v2)
+              _ <- send d $ add [lbl] v1
+              _ <- send d $ set [lbl] v2
+              r0 <- send d $ get []
+              r0 `shouldBe` Dict [(lbl,v2)]
 
       it "populate a DB" $ 
         property $ \ (DictValue v) -> withPlistConnection $ \ d -> do
+          debug $ ("populate",v)
           r0 <- send d $ do
             populateDict v
             get []
           r0 `shouldBe` v
 
-
       it "test deeper get" $ 
         property $ \ (DictValue v) -> 
-          forAll (arbitraryReadPath v) $ \ (Path ps,v') -> do
+          forAll (arbitraryReadPath 0.8 v) $ \ (Path ps,v') -> do
             withPlistConnection $ \ d -> do
-              print (ps)
+              send d $ populateDict v
+              r0 <- send d $ get ps
+              r0 `shouldBe` v'
+
+      it "test deepest get" $ 
+        property $ \ (DictValue v) -> 
+          forAll (arbitraryReadPath 1.0 v) $ \ (Path ps,v') -> do
+            withPlistConnection $ \ d -> do
               send d $ populateDict v
               r0 <- send d $ get ps
               r0 `shouldBe` v'
 
 
+      it "test deepest set then get" $ 
+        property $ \ (DictValue v) -> 
+          forAll (arbitraryReadPath 1.0 v) $ \ (Path ps,v1) -> 
+            not (null ps) && (case v1 of { Dict {} -> False; Array {} -> False ; _-> True}) ==>
+            forAll (arbitrarySameType v1) $ \ v2 ->
+              withPlistConnection $ \ d -> do
+                debug (v1,v2,ps)
+                send d $ populateDict v
+                send d $ set ps v2
+                r0 <- send d $ get ps
+                r0 `shouldBe` v2
+
+{-
   beforeAll clearDB $ do
     describe "plist modification" $ do  
       it "test save of DB" $ 
@@ -116,7 +139,8 @@ main = hspec $ do
           r0 <- send d $ get []
           send d $ exit
           r0 `shouldBe` v
-       
+-}
+                     
 populateDict :: Value -> PlistBuddy ()
 populateDict (Dict xs) = 
    do sequence_ [ populate (Path $ [i]) v | (i,v) <- xs ]
@@ -362,7 +386,7 @@ arbitraryValue n = frequency
    (1,mysized $ \ n' -> Array <$> sequence [ arbitraryValue (n-1) | _ <- [1..n]])
   ]
   where mysized k | n == 0    = k 0
-                  | otherwise = sized (k . (`mod` 8))
+                  | otherwise = modSized 8 k
 
 
 -- removes dup labels
@@ -428,6 +452,13 @@ valueShrink other = []
 
 ---------------------------------------
 
+arbitrarySameType :: Value -> Gen Value
+arbitrarySameType v0 = do
+  (OneValue v) <- arbitrary
+  if valueType v0 == valueType v
+  then return v
+  else arbitrarySameType v0 
+
 newtype PrimValue = PrimValue Value -- any primitive
   deriving (Show,Generic)
 
@@ -453,23 +484,23 @@ newtype DeepValue = DeepValue Value -- any value, to any depth
   deriving (Show,Generic)
   
 instance Arbitrary DeepValue where
-  arbitrary = DeepValue <$> sized (arbitraryValue . (`mod` 8))
+  arbitrary = DeepValue <$> modSized 8 arbitraryValue
   shrink (DeepValue v) = [ DeepValue v' | v' <- valueShrink v, valueType v == valueType v']
 
 newtype DictValue = DictValue Value -- any value, to any depth
   deriving (Show,Generic)
 
 instance Arbitrary DictValue where
-  arbitrary = (DictValue . mkDict) <$> (sized $ \ n -> vectorOf n (sized (arbitraryDict . (`mod` 8))))
+  arbitrary = (DictValue . mkDict) <$> (modSized 8 $ \ n -> vectorOf n (modSized 8 arbitraryDict))
   shrink (DictValue v) = [ DictValue v' | v' <- valueShrink v, valueType v == valueType v']
   
 newtype Label = Label Text
   deriving (Show,Generic)
 
 instance Arbitrary Label where
-  arbitrary = sized $ \ n -> (Label . pack) <$> sequence
+  arbitrary = modSized 32 $ \ n -> (Label . pack) <$> sequence
                 [ elements (['0'..'9'] ++ ['a'..'z'] ++ ['A'..'Z'])
-                | _ <- [0..n `mod` 32]
+                | _ <- [0..n]
                 ]
 
 newtype Path = Path [Text] -- non-empty
@@ -478,22 +509,32 @@ newtype Path = Path [Text] -- non-empty
 instance Arbitrary Path where
   arbitrary = Path <$> return []
 
+modSized :: Int -> (Int -> Gen a) -> Gen a
+modSized n k = choose (0,n-1) >>= k
 
 newtype ReadPath = ReadPath [Text] -- can be empty, must be valid
   deriving (Show,Generic)
 
-arbitraryReadPath :: Value -> Gen (Path,Value)
-arbitraryReadPath v@(Dict xs) = do
-    stop <- frequency [(5,return False),(1,return True)]
-    if stop || null xs
+
+arbitraryReadPath :: Double -> Value -> Gen (Path,Value)
+arbitraryReadPath n v@(Dict xs) = do
+    stop <- choose (0,1)
+    if (stop > n) || null xs
     then return (Path [],v)
     else do nm <- elements (map fst xs)
             case lookup nm xs of
               Just v' -> do
-                (Path ps,vr) <- arbitraryReadPath v'
+                (Path ps,vr) <- arbitraryReadPath n v'
                 return (Path (nm:ps),vr)
               Nothing -> error "arbitraryReadPath internal error"
-arbitraryReadPath v = return (Path [],v)
+arbitraryReadPath n v@(Array vs) = do
+    stop <- choose (0,1)
+    if (stop > n) || null vs
+    then return (Path [],v)
+    else do i <- elements [0..(length vs - 1)]
+            (Path ps,vr) <- arbitraryReadPath n (vs !! i)
+            return (Path (pack (show i):ps),vr)
+arbitraryReadPath _ v = return (Path [],v)
 
 
 compareValue :: Path -> Value -> Value -> String
@@ -514,3 +555,8 @@ compareValue (Path ps) (Array ds1) (Array ds2)
 compareValue (Path ps) v1 v2 
   | v1 /= v2 = "different values : " ++ show (ps,v1,v2)
   | otherwise = ""
+
+
+debug :: Show a => a -> IO ()
+debug = const $ return ()
+--debug = print
