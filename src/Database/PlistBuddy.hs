@@ -32,7 +32,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Except
 
-import Data.Char (ord)
+import Data.Char (ord,isSpace)
 import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Text.Encoding as E
@@ -190,11 +190,12 @@ get entry = do
 
         parseData :: [Content] -> Maybe ByteString
         parseData = either (const Nothing)
-                           (Just)
+                           (Just) 
                   . B64.decode
                   . E.encodeUtf8
+                  . T.filter (not . isSpace)
                   . T.pack
-                  . concatMap showContent 
+                  . showContents
 
         -- "\t" messes up
         parseString :: [Content] -> Maybe Text
