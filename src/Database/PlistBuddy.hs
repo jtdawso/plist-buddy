@@ -242,12 +242,14 @@ set :: [Text] -> Value -> PlistBuddy ()
 set []    value = error "Can not set empty path"
 set entry value = do
         tz <- liftIO $ getCurrentTimeZone
-        debug ("set",entry,value,quoteValue tz value,valueType value)
+--        debug ("set",entry,value,quoteValue tz value,valueType value)
         plist@(Plist pty lock _ _) <- ask
+        qv <- liftIO $ quoteValue value
         res <- liftIO $ command plist $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
-                                      <> " " <> quoteValue tz value 
+                                      <> " " <> qv
         case res of
           "" -> return ()
+          "Unrecognized Date Format" -> error $ "Unrecognized"
           _  -> throwPlistError $ PlistError $ "set failed: " ++ show res
     
 -- | Add Entry Type [Value] - Adds Entry to the plist, with value Value
@@ -256,14 +258,15 @@ add :: [Text] -> Value -> PlistBuddy ()
 add [] value = error "Can not add to an empty path"
 add entry value = do
         tz <- liftIO $ getCurrentTimeZone
-        debug ("add",entry,value,quoteValue tz value,valueType value)
+--        debug ("add",entry,value,quoteValue tz value,valueType value)
         plist@(Plist pty lock _ _) <- ask
         suffix <- case value of
                      Array [] -> return ""
                      Array _ -> error "add: array not empty"
                      Dict [] -> return ""
                      Dict _ -> error "add: array not empty"
-                     _ -> return $ " " <> quoteValue tz value
+                     _ -> do qv <- liftIO $ quoteValue value
+                             return $ " " <> qv
 
         res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
                                       <> " " <> valueType value
@@ -309,20 +312,26 @@ data Value  = String Text
             | Data ByteString
         deriving (Show, Read, Generic)
 
-quoteValue :: TimeZone -> Value -> ByteString
-quoteValue _  (String txt) = quote txt
-quoteValue _  (Array {})   = error "array value"
-quoteValue _  (Dict {})    = error "dict value"
-quoteValue _  (Bool True)  = "true"
-quoteValue _  (Bool False) = "false"
-quoteValue _  (Real r)     = E.encodeUtf8 $ T.pack $ show r
-quoteValue _  (Integer i)  = E.encodeUtf8 $ T.pack $ show i
+quoteValue :: Value -> IO ByteString
+quoteValue (String txt) = return $ quote txt
+quoteValue (Array {})   = return $ ""
+quoteValue (Dict {})    = return $ ""
+quoteValue (Bool True)  = return $ "true"
+quoteValue (Bool False) = return $ "false"
+quoteValue (Real r)     = return $ E.encodeUtf8 $ T.pack $ show r
+quoteValue (Integer i)  = return $ E.encodeUtf8 $ T.pack $ show i
 --  for some reason, PlistBuddy does not access UTC, but needs an actual zone.
-quoteValue tz (Date d)     = E.encodeUtf8 $ T.pack 
-                        $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S %Z %Y" 
-                        $ utcToZonedTime tz
-                        $ d
-quoteValue tz (Data d)     = B64.encode d
+quoteValue (Date d)     = do
+           -- PlistBuddy does not accept UTC as a zone for writing,
+           -- but uses it as the output when reading.
+           -- So we need to convert to the local zone, aka for strptime(3).
+          loc <- utcToLocalZonedTime d
+          return $ E.encodeUtf8 
+                 $ T.pack 
+                 $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S %Z %Y" 
+                 $ loc
+
+quoteValue (Data d)      = return $ B64.encode d
 
 -- Mon Oct 27 20:06:30 CST 2014
 

@@ -150,7 +150,7 @@ main = hspec $ do
 
       it "check for bad path error handling" $ 
         property $ \ (DictValue v) (Path p) -> p `notIn` v ==>  withPlistConnection $ \ d -> do
---          print $ ("bad path",v,p)
+          debug $ ("bad path",v,p)
           r <- (send d $ (do
                   populateDict v
                   get p
@@ -159,9 +159,6 @@ main = hspec $ do
 
           r `shouldBe` True
 
-
- -- TODO: 
- --  check for insert new value into dict
 
   beforeAll clearDB $ do
     describe "plist modification" $ do  
@@ -236,6 +233,7 @@ populate (Path ps) val =
                          [] -> False
                          (v:_) -> ps `notIn` v
 _ `notIn` _          = True
+
 {-
     -- TO ADD
         -- try get type error
@@ -285,8 +283,8 @@ arbitraryDict n = do
 
 arbitraryDate :: Gen UTCTime
 arbitraryDate =
-  UTCTime <$> ((\ d -> addDays d (fromGregorian 1970 1 1))
-                  <$> choose (0,100 * 365)
+  UTCTime <$> ((\ d -> addDays d (fromGregorian 1950 1 1))
+                  <$> choose (0,85 * 365)  -- dates after 2038 have issues (wordsize?)
               )
           <*> (fromInteger <$> choose (0,60 * 60 * 24 - 1))
         
@@ -352,7 +350,7 @@ instance Arbitrary PrimValue where
     , String  <$> arbitraryText
     , Bool    <$> arbitrary
     , Real    <$> arbitrary
---    , Date    <$> arbitraryDate
+    , Date    <$> arbitraryDate
 --    , Data    <$> arbitraryData -- not supported yet
     ]
   shrink (PrimValue v) = [ PrimValue v' | v' <- valueShrink v, valueType v == valueType v']
