@@ -124,10 +124,31 @@ main = hspec $ do
                 Just r0 <- send d $ get ps
                 r0 `shouldBe` v2
 
+      it "test delete" $ 
+        property $ \ (DictValue v) -> 
+          forAll (arbitraryReadPath 1.0 v) $ \ (Path ps,v1) -> 
+            not (null ps) ==>
+              withPlistConnection $ \ d -> do
+--                print (v1,ps)
+                (r1,parent) <- send d $ do
+                  populateDict v
+                  Just r1 <- get ps
+                  Just parent <- get (init ps)
+                  delete ps
+                  return (r1,parent)
+                case parent of
+                    Dict {} -> do
+                        r2 <- send d $ get ps
+                        (r1,r2) `shouldBe` (v1,Nothing)
+                    Array xs -> do
+                        xs' <- send d $ do
+                          Just (Array xs') <- get (init ps)
+                          return xs'
+                        (r1,length xs) `shouldBe` (v1,length xs' + 1)
+
+
  -- TODO: 
  --  check for insert new value into dict
- --  check for delete from dict
-
 
   beforeAll clearDB $ do
     describe "plist modification" $ do  
