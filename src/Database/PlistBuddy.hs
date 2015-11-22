@@ -242,8 +242,8 @@ get entry = do
 set :: [Text] -> Value -> PlistBuddy ()
 set []    value = error "Can not set empty path"
 set entry value = do
-        tz <- liftIO $ getCurrentTimeZone
---        debug ("set",entry,value,quoteValue tz value,valueType value)
+        qv <- liftIO $ quoteValue value
+        debug ("set",entry,value,qv,valueType value)
         plist@(Plist pty lock _ _) <- ask
         qv <- liftIO $ quoteValue value
         res <- liftIO $ command plist $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
@@ -258,8 +258,8 @@ set entry value = do
 add :: [Text] -> Value -> PlistBuddy ()
 add [] value = error "Can not add to an empty path"
 add entry value = do
-        tz <- liftIO $ getCurrentTimeZone
---        debug ("add",entry,value,quoteValue tz value,valueType value)
+        qv <- liftIO $ quoteValue value
+        debug ("add",entry,value,qv,valueType value)
         plist@(Plist pty lock _ _) <- ask
         suffix <- case value of
                      Array [] -> return ""
