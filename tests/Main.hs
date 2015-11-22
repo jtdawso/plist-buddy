@@ -292,7 +292,7 @@ arbitraryText :: Gen Text
 arbitraryText = sized $ \ n -> pack <$> (vectorOf (n`div` 5) $ elements ('\n':[' '..'~']))
 
 arbitraryData :: Gen BS.ByteString
-arbitraryData = return "" -- sized $ \ n -> BS.pack <$> (vectorOf (n`div`10) $ elements ([32..126]))
+arbitraryData = sized $ \ n -> BS.pack <$> (vectorOf (n`div` 5) $ elements ([32..126]))
 
 instance Eq Value where
   (==) = eqValue
@@ -351,7 +351,7 @@ instance Arbitrary PrimValue where
     , Bool    <$> arbitrary
     , Real    <$> arbitrary
     , Date    <$> arbitraryDate
-    , Data    <$> arbitraryData -- not supported yet
+    , Data    <$> arbitraryData
     ]
   shrink (PrimValue v) = [ PrimValue v' | v' <- valueShrink v, valueType v == valueType v']
 
