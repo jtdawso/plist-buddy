@@ -124,7 +124,6 @@ main = hspec $ do
                 r0 <- send d $ get ps
                 r0 `shouldBe` v2
 
-{-
   beforeAll clearDB $ do
     describe "plist modification" $ do  
       it "test save of DB" $ 
@@ -139,8 +138,37 @@ main = hspec $ do
           r0 <- send d $ get []
           send d $ exit
           r0 `shouldBe` v
--}
-                     
+
+      it "test save of DB, with changes in between" $ 
+        property $ \ (DictValue v) (DictValue v') -> guardPlistBuddyException $ do
+          d <- openPlist "test.plist"
+          send d $ clear (Dict [])  -- clear dict
+          send d $ do
+            populateDict v
+            save
+            clear $ Dict []
+            populateDict v'
+            exit
+          d <- openPlist "test.plist"
+          r0 <- send d $ get []
+          send d $ exit
+          r0 `shouldBe` v
+
+      it "test save and revert of DB" $ 
+        property $ \ (DictValue v) (DictValue v') -> guardPlistBuddyException $ do
+          d <- openPlist "test.plist"
+          send d $ clear (Dict [])  -- clear dict
+          r0 <- send d $ do
+            populateDict v
+            save
+            clear $ Dict []
+            populateDict v'
+            revert
+            r <- get []
+            exit
+            return r
+          r0 `shouldBe` v
+
 populateDict :: Value -> PlistBuddy ()
 populateDict (Dict xs) = 
    do sequence_ [ populate (Path $ [i]) v | (i,v) <- xs ]
