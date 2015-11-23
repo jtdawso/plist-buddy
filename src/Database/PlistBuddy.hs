@@ -377,8 +377,6 @@ quoteBS q = "'" <> BS.concatMap esc q <> "'"
         esc 92 = "\\\\"  -- RTT moment
         esc 10 = "\\n"
         esc 34 = "\\\""
---        esc 28 = "\\u001C" 
---        esc 26 = "\\z"
         esc c  = BS.pack [c]
 
         
