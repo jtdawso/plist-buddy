@@ -243,6 +243,7 @@ get entry = do
 set :: [Text] -> Value -> PlistBuddy ()
 set []    value = error "Can not set empty path"
 set entry (Date d) = mergeDate entry d
+set entry (Data d) | not (BS.null d) = importData entry d
 set entry value = do
         qv <- liftIO $ quoteValue value
         debug ("set",entry,value,qv,valueType value)
@@ -263,6 +264,7 @@ set entry value = do
 add :: [Text] -> Value -> PlistBuddy ()
 add [] value = error "Can not add to an empty path"
 add entry (Date d) = mergeDate entry d
+add entry (Data d) | not (BS.null d) = importData entry d
 add entry value = do
         qv <- liftIO $ quoteValue value
         debug ("add",entry,value,qv,valueType value)
@@ -297,6 +299,25 @@ delete entry = do
         case res of
           "" -> return ()
           _  -> throwPlistError $ PlistError $ "delete failed: " ++ show res
+
+
+importData :: [Text] -> ByteString -> PlistBuddy ()
+importData entry d = do
+  debug ("import(add/set)",entry,d)
+  plist <- ask
+  nm <- liftIO $ do
+    (nm,h) <- openBinaryTempFile "/tmp" "plist-data-.tmp"
+    BS.hPutStr h d -- write temp file with the binary data
+    hClose h
+    return nm
+  res <- liftIO $ command plist $ "Import "  <> BS.concat [ ":" <> quoteText e | e <- entry ]
+                                <> " "
+                                <> (quoteText $ T.pack $ nm)
+  liftIO $ removeFile nm
+  case res of
+    "" -> return ()
+    _  -> throwPlistError $ PlistError $ "import(add/set) failed: " ++ show res
+
 
 -- a version of add/set that uses merge, because the date writing format
 -- has a missing hour in Fall, because of timezones.
@@ -413,49 +434,8 @@ quoteValue (Bool True)  = return $ RawQuote $ "true"
 quoteValue (Bool False) = return $ RawQuote $ "false"
 quoteValue (Real r)     = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show r
 quoteValue (Integer i)  = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show i
---  for some reason, PlistBuddy does not access UTC, but needs an actual zone.
-{-
-
-quoteValue (Date d)     = do
-  (nm,h) <- openBinaryTempFile "/tmp" "plist-date-.tmp"
-  hPutStr h $ showTopElement (unode "array" ([unode "date" $ formatTime defaultTimeLocale "%FT%XZ" d])) 
-  hClose h
-  return $ PlistQuote (quoteText $ T.pack $ nm) (removeFile nm)
-
-           
-           -- PlistBuddy does not accept UTC as a zone for writing,
-           -- but uses it as the output when reading.
-           -- So we need to convert to the local zone, aka for strptime(3).
---one <- getTimeZone t
---	return (utcToZonedTime zone t)
-{-  
-          tz <- getTimeZone $ d -- addUTCTime 100000 d -- (-60 * 60) d
-          tz1 <- getTimeZone $ addUTCTime (-24 * 60 * 60) d -- (-60 * 60) d
-          
-          let special = (tz1 /= tz) &&
-                        utctDayTime d >= 7 * 60 * 60 
-                      &&
-                        utctDayTime d < 8 * 60 * 60
-          
-                                  if (tz /= tz1) 
-          then print (tz,tz1, utctDayTime d)
-          else return ()
--}
-          return $ RawQuote 
-                 $ E.encodeUtf8 
-                 $ T.pack 
-                 $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S GMT %Y" 
---                 $ utcToZonedTime (if special then tz1 else tz) 
-                 $ d
--}
-quoteValue (Data d) | BS.null d  = return $ RawQuote $ ""
-quoteValue (Data d) = do
-  (nm,h) <- openBinaryTempFile "/tmp" "plist-data-.tmp"
-  BS.hPutStr h d -- write temp file with the binary data
-  hClose h
-  return $ FileQuote (quoteText $ T.pack $ nm) (removeFile nm)
-
--- Mon Oct 27 20:06:30 CST 2014
+quoteValue (Date d)     = return $ RawQuote $ E.encodeUtf8 $ T.pack $ formatTime defaultTimeLocale "%FT%XZ" d
+quoteValue (Data d)     = return $ RawQuote $ B64.encode d
 
 valueType :: Value -> ByteString
 valueType (String txt) = "string"
