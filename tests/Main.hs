@@ -319,7 +319,7 @@ valueShrink (Dict []) = []
 valueShrink (Dict [(lbl,x)]) = [x]
 valueShrink (Dict xs) =
     [ Dict (take i xs ++ drop (i + 1) xs)
-    | i <- [0..length xs]
+    | i <- [0..length xs - 1]
     ] ++ 
     [ Dict (map fst xs `zip` vs)
     | vs <- transpose $ fmap valueShrink (map snd xs) 
@@ -328,7 +328,7 @@ valueShrink (Array []) = []
 valueShrink (Array [x]) = [x]
 valueShrink (Array vs) =
     [ Array (take i vs ++ drop (i + 1) vs)
-    | i <- [0..length vs]
+    | i <- [0..length vs - 1]
     ] ++ 
     [ Array vs
     | vs <- transpose $ map valueShrink vs
