@@ -203,7 +203,7 @@ main = hspec $ do
             r <- get []
             exit
             return r
-          r0 `shouldBe` v
+          r0 `shouldBe` v            
 
 populateDict :: Value -> PlistBuddy ()
 populateDict (Dict xs) = 
@@ -283,16 +283,18 @@ arbitraryDict n = do
 
 arbitraryDate :: Gen UTCTime
 arbitraryDate =
-  UTCTime <$> ((\ d -> addDays d (fromGregorian 1950 1 1))
-                  <$> choose (0,85 * 365)  -- dates after 2038 have issues (wordsize?)
+  UTCTime <$> ((\ d -> addDays d (fromGregorian 1950 1 1)) -- 2003 10 25
+                  <$> choose (0, 85 * 365)  -- dates after 2038 have issues (wordsize?)
+                                -- +2
               )
           <*> (fromInteger <$> choose (0,60 * 60 * 24 - 1))
         
 arbitraryText :: Gen Text
-arbitraryText = sized $ \ n -> pack <$> (vectorOf (n`div` 5) $ elements ('\n':[' '..'~']))
+arbitraryText = modSized 10 $ \ n -> pack <$> (vectorOf n $ elements ('\n':[' '..'~']))
 
+-- 28
 arbitraryData :: Gen BS.ByteString
-arbitraryData = sized $ \ n -> BS.pack <$> (vectorOf (n`div` 5) $ elements ([32..126]))
+arbitraryData = modSized 32 $ \ n -> BS.pack <$> (vectorOf n $ elements ([0..255]))
 
 instance Eq Value where
   (==) = eqValue
@@ -320,8 +322,10 @@ valueShrink (Dict xs) =
     | i <- [0..length xs]
     ] ++ 
     [ Dict (map fst xs `zip` vs)
-    | vs <- fmap valueShrink (map snd xs) 
+    | vs <- transpose $ fmap valueShrink (map snd xs) 
     ]
+valueShrink (Array []) = []
+valueShrink (Array [x]) = [x]
 valueShrink (Array vs) =
     [ Array (take i vs ++ drop (i + 1) vs)
     | i <- [0..length vs]
@@ -329,6 +333,8 @@ valueShrink (Array vs) =
     [ Array vs
     | vs <- transpose $ map valueShrink vs
     ]
+--valueShrink (Date d) = [Date $ addUTCTime (60*60) d,Date $ addUTCTime (60) d,Date $ addUTCTime (1) d]
+
 valueShrink other = []
     
 
@@ -350,8 +356,8 @@ instance Arbitrary PrimValue where
     , String  <$> arbitraryText
     , Bool    <$> arbitrary
     , Real    <$> arbitrary
-    , Date    <$> arbitraryDate
-    , Data    <$> arbitraryData
+--    , Date    <$> arbitraryDate -- for now
+    , Data    <$> arbitraryData 
     ]
   shrink (PrimValue v) = [ PrimValue v' | v' <- valueShrink v, valueType v == valueType v']
 
@@ -444,3 +450,4 @@ compareValue (Path ps) v1 v2
 debug :: Show a => a -> IO ()
 debug = const $ return ()
 --debug = print
+
