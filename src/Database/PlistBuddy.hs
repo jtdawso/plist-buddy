@@ -85,7 +85,7 @@ debugOn :: Plist -> Plist
 debugOn (Plist pty lock h _) = Plist pty lock h True
 
 send :: Plist -> PlistBuddy a -> IO a
-send dev (PlistBuddy m) = do
+send dev@(Plist pty lock _ _) (PlistBuddy m) = bracket (takeMVar lock)  (putMVar lock) $ \ () -> do
         v <- runReaderT (runExceptT m) dev
         case v of
           Left (PlistError msg) -> fail  msg  -- an unhandled PlistError turns into an IO fail
@@ -423,10 +423,7 @@ openPlist fileName = handleIOErrors $ do
     return $ Plist pty lock ph False
 
 command :: Plist -> ByteString -> IO ByteString
-command (Plist pty lock _ d) input = bracket
-           (takeMVar lock)
-           (putMVar lock)
-           todo
+command (Plist pty lock _ d) input = todo
   where
     write txt = do
       when d $ print ("write",txt)
@@ -436,7 +433,7 @@ command (Plist pty lock _ d) input = bracket
       tid <- myThreadId
       print (tid,msg)
 
-    todo () = do
+    todo = do
         write (input <> "\n")
         r <- recvReply pty d
         when d $ print ("read",r)
