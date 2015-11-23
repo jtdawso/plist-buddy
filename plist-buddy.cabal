@@ -21,6 +21,7 @@ library
   build-depends:       base >=4.7 && <4.9
                      , base64-bytestring == 1.0.*
                      , bytestring == 0.10.*
+                     , directory == 1.2.*
                      , mtl >=2.2 && <2.3
                      , process >=1.2 && <1.5
                      , posix-pty == 0.2.*
