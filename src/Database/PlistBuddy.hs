@@ -42,6 +42,7 @@ import qualified Data.ByteString.Base64 as B64
 import Data.List ()
 import Data.Monoid ((<>))
 
+import System.Directory (removeFile)
 import System.Process
 import System.IO
 import System.Posix.Pty
@@ -152,7 +153,7 @@ get :: [Text] -> PlistBuddy Value
 get entry = do
         debug ("get",entry)
         plist@(Plist pty lock _ _) <- ask
-        res <- liftIO $ command plist $ "Print" <>  BS.concat [ ":" <> quote e | e <- entry ]
+        res <- liftIO $ command plist $ "Print" <>  BS.concat [ ":" <> quoteText e | e <- entry ]
         if "Print: Entry, " `BS.isPrefixOf` res && ", Does Not Exist" `BS.isSuffixOf` res
         then throwPlistError $ PlistError $ "value not found"
         else case parseXMLDoc (BS.filter (/= fromIntegral (ord '\r')) res) of
@@ -245,9 +246,12 @@ set entry value = do
         qv <- liftIO $ quoteValue value
         debug ("set",entry,value,qv,valueType value)
         plist@(Plist pty lock _ _) <- ask
-        qv <- liftIO $ quoteValue value
-        res <- liftIO $ command plist $ "Set "  <> BS.concat [ ":" <> quote e | e <- entry ]
-                                      <> " " <> qv
+        let cmd = case qv of
+                    RawQuote {} -> "Set "
+                    FileQuote {} -> "Import "
+        res <- liftIO $ command plist $ cmd <> BS.concat [ ":" <> quoteText e | e <- entry ]
+                                      <> " " <> showQuote qv
+        liftIO $ finalizeQuote qv
         case res of
           "" -> return ()
           "Unrecognized Date Format" -> error $ "Unrecognized"
@@ -266,12 +270,18 @@ add entry value = do
                      Array _ -> error "add: array not empty"
                      Dict [] -> return ""
                      Dict _ -> error "add: array not empty"
-                     _ -> do qv <- liftIO $ quoteValue value
-                             return $ " " <> qv
+                     _ -> do return $ showQuote qv
+        let cmd = case qv of
+                    RawQuote {} -> "Add "
+                    FileQuote {} -> "Import "
+        let ty = case qv of
+                    RawQuote {} -> valueType value
+                    FileQuote {} -> ""
 
-        res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quote e | e <- entry ]
-                                      <> " " <> valueType value
+        res <- liftIO $ command plist $ cmd  <> BS.concat [ ":" <> quoteText e | e <- entry ]
+                                      <> " " <> ty <> " "
                                       <> suffix
+        liftIO $ finalizeQuote qv
         case res of
           "" -> return ()
           _  -> throwPlistError $ PlistError $ "add failed: " ++ show res
@@ -281,7 +291,7 @@ delete :: [Text] -> PlistBuddy ()
 delete entry = do
         debug ("delete",entry)
         plist@(Plist pty lock _ _) <- ask
-        res <- liftIO $ command plist $ "delete " <>  BS.concat [ ":" <> quote e | e <- entry ]
+        res <- liftIO $ command plist $ "delete " <>  BS.concat [ ":" <> quoteText e | e <- entry ]
         case res of
           "" -> return ()
           _  -> throwPlistError $ PlistError $ "delete failed: " ++ show res
@@ -293,13 +303,19 @@ delete entry = do
 --    Import <Entry> <file> - Creates or sets Entry the contents of file
 -}
 
-quote :: Text -> ByteString
-quote q = "'" <> BS.concatMap esc (E.encodeUtf8 q) <> "'"
+quoteText :: Text -> ByteString
+quoteText = quoteBS . E.encodeUtf8
+
+quoteBS :: ByteString -> ByteString
+quoteBS q = "'" <> BS.concatMap esc q <> "'"
   where esc 39 = "\\'"
         esc 92 = "\\\\"  -- RTT moment
         esc 10 = "\\n"
         esc 34 = "\\\""
+--        esc 28 = "\\u001C" 
+--        esc 26 = "\\z"
         esc c  = BS.pack [c]
+
         
 ------------------------------------------------------------------------------
 
@@ -313,25 +329,62 @@ data Value  = String Text
             | Data ByteString
         deriving (Show, Read, Generic)
 
-quoteValue :: Value -> IO ByteString
-quoteValue (String txt) = return $ quote txt
-quoteValue (Array {})   = return $ ""
-quoteValue (Dict {})    = return $ ""
-quoteValue (Bool True)  = return $ "true"
-quoteValue (Bool False) = return $ "false"
-quoteValue (Real r)     = return $ E.encodeUtf8 $ T.pack $ show r
-quoteValue (Integer i)  = return $ E.encodeUtf8 $ T.pack $ show i
+
+data Quote = RawQuote ByteString          -- raw text
+           | FileQuote ByteString (IO ()) -- name of file, and finalizer
+
+instance Show Quote where
+  show (RawQuote bs)    = "RawQuote:" ++ show bs
+  show (FileQuote bs _) = "FileQuote:" ++ show bs
+
+showQuote :: Quote -> ByteString
+showQuote (RawQuote bs)    = bs
+showQuote (FileQuote bs _) = bs
+
+finalizeQuote :: Quote -> IO ()
+finalizeQuote (RawQuote {}) = return ()
+finalizeQuote (FileQuote _ m) = m
+
+quoteValue :: Value -> IO Quote
+quoteValue (String txt) = return $ RawQuote $ quoteBS $ E.encodeUtf8 $ txt
+quoteValue (Array {})   = return $ RawQuote $ ""
+quoteValue (Dict {})    = return $ RawQuote $ ""
+quoteValue (Bool True)  = return $ RawQuote $ "true"
+quoteValue (Bool False) = return $ RawQuote $ "false"
+quoteValue (Real r)     = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show r
+quoteValue (Integer i)  = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show i
 --  for some reason, PlistBuddy does not access UTC, but needs an actual zone.
 quoteValue (Date d)     = do
            -- PlistBuddy does not accept UTC as a zone for writing,
            -- but uses it as the output when reading.
            -- So we need to convert to the local zone, aka for strptime(3).
-          loc <- utcToLocalZonedTime d
-          return $ E.encodeUtf8 
+--one <- getTimeZone t
+--	return (utcToZonedTime zone t)
+{-  
+          tz <- getTimeZone $ d -- addUTCTime 100000 d -- (-60 * 60) d
+          tz1 <- getTimeZone $ addUTCTime (-24 * 60 * 60) d -- (-60 * 60) d
+          
+          let special = (tz1 /= tz) &&
+                        utctDayTime d >= 7 * 60 * 60 
+                      &&
+                        utctDayTime d < 8 * 60 * 60
+          
+                                  if (tz /= tz1) 
+          then print (tz,tz1, utctDayTime d)
+          else return ()
+-}
+          return $ RawQuote 
+                 $ E.encodeUtf8 
                  $ T.pack 
-                 $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S %Z %Y" 
-                 $ loc
-quoteValue (Data d)      = return $ quote $ E.decodeUtf8 d
+                 $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S GMT %Y" 
+--                 $ utcToZonedTime (if special then tz1 else tz) 
+                 $ d
+quoteValue (Data d) | BS.null d  = return $ RawQuote $ ""
+quoteValue (Data d) = do
+  (nm,h) <- openBinaryTempFile "/tmp" "plist-data-.tmp"
+  BS.hPutStr h d -- write temp file with the binary data
+  hClose h
+  return $ FileQuote (quoteText $ T.pack $ nm) (removeFile nm)
 
 -- Mon Oct 27 20:06:30 CST 2014
 
