@@ -32,7 +32,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Except
 
-import Data.Char (ord,isSpace)
+import Data.Char (ord,isSpace,isDigit)
 import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Text.Encoding as E
@@ -242,6 +242,7 @@ get entry = do
 -- You can not set dictionaries or arrays.
 set :: [Text] -> Value -> PlistBuddy ()
 set []    value = error "Can not set empty path"
+set entry (Date d) = mergeDate entry d
 set entry value = do
         qv <- liftIO $ quoteValue value
         debug ("set",entry,value,qv,valueType value)
@@ -261,6 +262,7 @@ set entry value = do
 -- You can add *empty* dictionaries or arrays.
 add :: [Text] -> Value -> PlistBuddy ()
 add [] value = error "Can not add to an empty path"
+add entry (Date d) = mergeDate entry d
 add entry value = do
         qv <- liftIO $ quoteValue value
         debug ("add",entry,value,qv,valueType value)
@@ -295,6 +297,64 @@ delete entry = do
         case res of
           "" -> return ()
           _  -> throwPlistError $ PlistError $ "delete failed: " ++ show res
+
+-- a version of add/set that uses merge, because the date writing format
+-- has a missing hour in Fall, because of timezones.
+mergeDate :: [Text] -> UTCTime -> PlistBuddy ()
+mergeDate entry d = do
+  debug ("merge(set/get)",entry,d)
+  plist <- ask
+  v <- get (init entry) -- 'orable way of doing this. Best of bad options
+  case v of
+    Dict env -> do
+      res <- liftIO $ do
+            (nm,h) <- openBinaryTempFile "/tmp" "plist-date-.tmp"
+            hPutStr h $ showTopElement $ 
+                          unode "dict" $
+                              [ unode "key"  $ T.unpack $ last entry
+                              , unode "date" $ formatTime defaultTimeLocale "%FT%XZ" d
+                              ]
+            hClose h
+            when (last entry `elem` map fst env) $ do
+              void $ command plist $ "delete " <>  BS.concat [ ":" <> quoteText e | e <- entry ]
+            res <- command plist $ "merge " <> quoteText (T.pack nm) <> " "
+                                            <> BS.concat [ ":" <> quoteText e | e <- (init entry) ]
+            removeFile nm
+            return res
+      case res of
+        "" -> return ()
+        _  -> throwPlistError $ PlistError $ "merge(set/get) failed: " ++ show res
+    Array vs | T.all isDigit (last entry) -> do
+      res <- liftIO $ do
+            (nm,h) <- openBinaryTempFile "/tmp" "plist-date-.tmp"
+            hPutStr h $ showTopElement $ 
+                          unode "array" $
+                              [ unode "date" $ formatTime defaultTimeLocale "%FT%XZ" d
+                              ]
+            hClose h
+            -- add to end of list
+            res <- command plist $ "merge " <> quoteText (T.pack nm) <> " "
+                                            <> BS.concat [ ":" <> quoteText e | e <- (init entry) ]
+            removeFile nm
+            -- now, move the inserted value to the correct place
+            let n = if T.null (last entry)
+                    then length vs  -- "" inserts at the end
+                    else read $ T.unpack $ last $ entry
+
+            when (n < length vs) $ do
+              -- We need to move it
+             let path x = BS.concat [ ":" <> quoteText e 
+                                    | e <- init entry ++ [T.pack $ show $ x]
+                                    ] 
+             void $ command plist $ "copy " <> path (length vs) <> " " <> path n
+             void $ command plist $ "delete " <> path (length vs)
+            return res
+      case res of
+        "" -> return ()
+        _  -> throwPlistError $ PlistError $ "merge(set/get) failed: " ++ show res
+
+    _ -> error $ "add/set error for date; path type error"
+  
 
 {-                
 -- Not (yet) supported
@@ -354,7 +414,15 @@ quoteValue (Bool False) = return $ RawQuote $ "false"
 quoteValue (Real r)     = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show r
 quoteValue (Integer i)  = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show i
 --  for some reason, PlistBuddy does not access UTC, but needs an actual zone.
+{-
+
 quoteValue (Date d)     = do
+  (nm,h) <- openBinaryTempFile "/tmp" "plist-date-.tmp"
+  hPutStr h $ showTopElement (unode "array" ([unode "date" $ formatTime defaultTimeLocale "%FT%XZ" d])) 
+  hClose h
+  return $ PlistQuote (quoteText $ T.pack $ nm) (removeFile nm)
+
+           
            -- PlistBuddy does not accept UTC as a zone for writing,
            -- but uses it as the output when reading.
            -- So we need to convert to the local zone, aka for strptime(3).
@@ -379,6 +447,7 @@ quoteValue (Date d)     = do
                  $ formatTime defaultTimeLocale "%a %b %e %H:%M:%S GMT %Y" 
 --                 $ utcToZonedTime (if special then tz1 else tz) 
                  $ d
+-}
 quoteValue (Data d) | BS.null d  = return $ RawQuote $ ""
 quoteValue (Data d) = do
   (nm,h) <- openBinaryTempFile "/tmp" "plist-data-.tmp"

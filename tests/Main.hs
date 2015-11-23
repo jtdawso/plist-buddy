@@ -356,7 +356,7 @@ instance Arbitrary PrimValue where
     , String  <$> arbitraryText
     , Bool    <$> arbitrary
     , Real    <$> arbitrary
---    , Date    <$> arbitraryDate -- for now
+    , Date    <$> arbitraryDate -- for now
     , Data    <$> arbitraryData 
     ]
   shrink (PrimValue v) = [ PrimValue v' | v' <- valueShrink v, valueType v == valueType v']
