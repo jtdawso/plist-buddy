@@ -243,7 +243,7 @@ get entry = do
 set :: [Text] -> Value -> PlistBuddy ()
 set []    value = error "Can not set empty path"
 set entry (Date d) = mergeDate entry d
-set entry (Data d) | not (BS.null d) = importData entry d
+set entry (Data d) = importData entry d
 set entry value = do
         qv <- liftIO $ quoteValue value
         debug ("set",entry,value,qv,valueType value)
@@ -264,7 +264,7 @@ set entry value = do
 add :: [Text] -> Value -> PlistBuddy ()
 add [] value = error "Can not add to an empty path"
 add entry (Date d) = mergeDate entry d
-add entry (Data d) | not (BS.null d) = importData entry d
+add entry (Data d) = importData entry d
 add entry value = do
         qv <- liftIO $ quoteValue value
         debug ("add",entry,value,qv,valueType value)
@@ -434,8 +434,7 @@ quoteValue (Bool True)  = return $ RawQuote $ "true"
 quoteValue (Bool False) = return $ RawQuote $ "false"
 quoteValue (Real r)     = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show r
 quoteValue (Integer i)  = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show i
-quoteValue (Date d)     = return $ RawQuote $ E.encodeUtf8 $ T.pack $ formatTime defaultTimeLocale "%FT%XZ" d
-quoteValue (Data d)     = return $ RawQuote $ B64.encode d
+quoteValue other        = error $ "can not quote " ++ show other
 
 valueType :: Value -> ByteString
 valueType (String txt) = "string"
