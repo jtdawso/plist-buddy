@@ -244,16 +244,13 @@ set :: [Text] -> Value -> PlistBuddy ()
 set []    value = error "Can not set empty path"
 set entry (Date d) = mergeDate entry d
 set entry (Data d) = importData entry d
+set entry (Dict xs) = error "set: dict not allowed"
+set entry (Array xs) = error "set: array not allowed"
 set entry value = do
-        qv <- liftIO $ quoteValue value
-        debug ("set",entry,value,qv,valueType value)
+        debug ("set",entry,value,valueType value)
         plist <- ask
-        let cmd = case qv of
-                    RawQuote {} -> "Set "
-                    FileQuote {} -> "Import "
-        res <- liftIO $ command plist $ cmd <> BS.concat [ ":" <> quoteText e | e <- entry ]
-                                      <> " " <> showQuote qv
-        liftIO $ finalizeQuote qv
+        res <- liftIO $ command plist $ "Set " <> BS.concat [ ":" <> quoteText e | e <- entry ]
+                                      <> " " <> quoteValue value
         case res of
           "" -> return ()
           "Unrecognized Date Format" -> error $ "Unrecognized"
@@ -265,27 +262,14 @@ add :: [Text] -> Value -> PlistBuddy ()
 add [] value = error "Can not add to an empty path"
 add entry (Date d) = mergeDate entry d
 add entry (Data d) = importData entry d
+add entry (Dict xs) | not (null xs) = error "add: dict not empty"
+add entry (Array xs) | not (null xs) = error "add: array not empty"
 add entry value = do
-        qv <- liftIO $ quoteValue value
-        debug ("add",entry,value,qv,valueType value)
+        debug ("add",entry,value,valueType value)
         plist <- ask
-        suffix <- case value of
-                     Array [] -> return ""
-                     Array _ -> error "add: array not empty"
-                     Dict [] -> return ""
-                     Dict _ -> error "add: array not empty"
-                     _ -> do return $ showQuote qv
-        let cmd = case qv of
-                    RawQuote {} -> "Add "
-                    FileQuote {} -> "Import "
-        let ty = case qv of
-                    RawQuote {} -> valueType value
-                    FileQuote {} -> ""
-
-        res <- liftIO $ command plist $ cmd  <> BS.concat [ ":" <> quoteText e | e <- entry ]
-                                      <> " " <> ty <> " "
-                                      <> suffix
-        liftIO $ finalizeQuote qv
+        res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quoteText e | e <- entry ]
+                                      <> " " <> valueType value <> " "
+                                      <> quoteValue value
         case res of
           "" -> return ()
           _  -> throwPlistError $ PlistError $ "add failed: " ++ show res
@@ -426,14 +410,14 @@ finalizeQuote :: Quote -> IO ()
 finalizeQuote (RawQuote {}) = return ()
 finalizeQuote (FileQuote _ m) = m
 
-quoteValue :: Value -> IO Quote
-quoteValue (String txt) = return $ RawQuote $ quoteBS $ E.encodeUtf8 $ txt
-quoteValue (Array {})   = return $ RawQuote $ ""
-quoteValue (Dict {})    = return $ RawQuote $ ""
-quoteValue (Bool True)  = return $ RawQuote $ "true"
-quoteValue (Bool False) = return $ RawQuote $ "false"
-quoteValue (Real r)     = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show r
-quoteValue (Integer i)  = return $ RawQuote $ E.encodeUtf8 $ T.pack $ show i
+quoteValue :: Value -> ByteString
+quoteValue (String txt) = quoteBS $ E.encodeUtf8 $ txt
+quoteValue (Array {})   = ""
+quoteValue (Dict {})    = ""
+quoteValue (Bool True)  = "true"
+quoteValue (Bool False) = "false"
+quoteValue (Real r)     = E.encodeUtf8 $ T.pack $ show r
+quoteValue (Integer i)  = E.encodeUtf8 $ T.pack $ show i
 quoteValue other        = error $ "can not quote " ++ show other
 
 valueType :: Value -> ByteString
