@@ -94,7 +94,7 @@ send dev@(Plist pty lock _ _) (PlistBuddy m) = bracket (takeMVar lock)  (putMVar
 -- | Returns Help Text
 help :: PlistBuddy Text
 help = do
-        plist@(Plist pty lock _ _) <- ask
+        plist <- ask
         res <- liftIO $ command plist "Help"
         return $ E.decodeUtf8 $ res
 
@@ -116,7 +116,7 @@ exit = do
 -- | Saves the current changes to the file
 save :: PlistBuddy ()
 save = do
-        plist@(Plist pty lock _ _) <- ask
+        plist <- ask
         res <- liftIO $ command plist "Save"
         case res of
           "Saving..." -> return ()
@@ -126,7 +126,7 @@ save = do
 -- | Reloads the last saved version of the file
 revert :: PlistBuddy ()
 revert = do
-        plist@(Plist pty lock _ _) <- ask
+        plist <- ask
         res <- liftIO $ command plist "Revert"
         case res of
           "Reverting to last saved state..." -> return ()
@@ -136,7 +136,7 @@ revert = do
 -- where the value is an empty Dict or Array.
 clear :: Value -> PlistBuddy ()
 clear value = do
-        plist@(Plist pty lock _ _) <- ask
+        plist <- ask
         ty <- case value of
                      Array [] -> return $ valueType value
                      Array _  -> error "add: array not empty"
@@ -152,7 +152,7 @@ clear value = do
 get :: [Text] -> PlistBuddy Value
 get entry = do
         debug ("get",entry)
-        plist@(Plist pty lock _ _) <- ask
+        plist <- ask
         res <- liftIO $ command plist $ "Print" <>  BS.concat [ ":" <> quoteText e | e <- entry ]
         if "Print: Entry, " `BS.isPrefixOf` res && ", Does Not Exist" `BS.isSuffixOf` res
         then throwPlistError $ PlistError $ "value not found"
@@ -245,7 +245,7 @@ set []    value = error "Can not set empty path"
 set entry value = do
         qv <- liftIO $ quoteValue value
         debug ("set",entry,value,qv,valueType value)
-        plist@(Plist pty lock _ _) <- ask
+        plist <- ask
         let cmd = case qv of
                     RawQuote {} -> "Set "
                     FileQuote {} -> "Import "
@@ -264,7 +264,7 @@ add [] value = error "Can not add to an empty path"
 add entry value = do
         qv <- liftIO $ quoteValue value
         debug ("add",entry,value,qv,valueType value)
-        plist@(Plist pty lock _ _) <- ask
+        plist <- ask
         suffix <- case value of
                      Array [] -> return ""
                      Array _ -> error "add: array not empty"
@@ -290,7 +290,7 @@ add entry value = do
 delete :: [Text] -> PlistBuddy ()
 delete entry = do
         debug ("delete",entry)
-        plist@(Plist pty lock _ _) <- ask
+        plist <- ask
         res <- liftIO $ command plist $ "delete " <>  BS.concat [ ":" <> quoteText e | e <- entry ]
         case res of
           "" -> return ()
