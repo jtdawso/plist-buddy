@@ -36,8 +36,9 @@ import Data.Char (ord,isSpace,isDigit)
 import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Text.Encoding as E
-import Database.PlistBuddy.Types
 import Database.PlistBuddy.Command
+import Database.PlistBuddy.Open
+import Database.PlistBuddy.Types
 
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
@@ -403,27 +404,6 @@ valueType (Date {})    = "date"
 valueType (Data {})    = "data"
 
 ------------------------------------------------------------------------------
-
-handleIOErrors :: IO a -> IO a
-handleIOErrors m =
-  m `catchIOError` \ e -> throw $ PlistBuddyException $ "IO error, " ++ show e
-
-openPlist :: FilePath -> IO Plist
-openPlist fileName = handleIOErrors $ do
-    tid <- myThreadId 
-    (pty,ph) <- spawnWithPty
-                    Nothing
-                    False
-                    "/usr/libexec/PlistBuddy"
-                    ["-x",fileName]
-                    (80,24)
-
-    myWritePty pty "#\n" -- 1 times in 100, you need to poke the plist-buddy
-    _ <- recvReply0 pty
-    attr <- getTerminalAttributes pty
-    setTerminalAttributes pty ((attr `withoutMode` EnableEcho) `withoutMode` ProcessInput) Immediately
-    lock <- newMVar ()
-    return $ Plist pty lock ph False
 
 debug :: (Show a) => a -> PlistBuddy ()
 debug a = do
