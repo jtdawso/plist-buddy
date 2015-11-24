@@ -23,6 +23,7 @@ library
                      , Database.PlistBuddy.Open
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.7 && <4.9
+                     , base16-bytestring == 0.1.*
                      , base64-bytestring == 1.0.*
                      , bytestring == 0.10.*
                      , cryptohash == 0.11.*

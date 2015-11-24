@@ -8,6 +8,7 @@ import Control.Monad.Except
 
 import Data.Text(Text)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Lazy as LB
 import Database.PlistBuddy.Types
 
@@ -29,16 +30,28 @@ auditPlist auditFile (Plist {}) = do
 
 startAudit :: FilePath -> FilePath -> IO (Update -> IO ())
 startAudit auditFile plistFile = do
-  return $ \ u -> print ("update",u)
+  -- if there is no file, then this creates an empty file first
+  au <- openBinaryFile auditFile WriteMode
+  -- NOTE: for now, we worry about the writing part
+  -- pretend the winding to the EOF has been done
+  issue au =<< snapshot plistFile
+--  au <- LB.openFile auditFile 
+  return $ \ u -> do
+    case u of
+      Exit -> hClose au
+      _ -> issue au $ Update u
   
-snapshot :: FilePath -> IO ByteString
+snapshot :: FilePath -> IO Audit
 snapshot file = do
   bs <- LB.readFile file
-  return $! MD5.hashlazy bs
+  hash <- return $! MD5.hashlazy bs
+  return $ Hash $ B16.encode hash
   
-issue :: Handle -> Update -> IO ()
-issue h t = return ()
-
+issue :: Handle -> Audit -> IO ()
+issue h u = do
+  hPutStr h $ show u ++ " :\n"
+  hFlush h
+  
 -- | Find the list of 'PlistBuddy' commands to recover the most recent version of the plist.
 --   Be careful when running recover with the audit capability turned on; it can duplicate
 --   the audit trail, because recovery is also write. (This should not break anything)
