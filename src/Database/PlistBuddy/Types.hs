@@ -11,6 +11,9 @@ module Database.PlistBuddy.Types
          -- * Exception
         , PlistBuddyException(..)
         , PlistError(..)
+        -- * Audit
+        , Transaction(..)
+        , Write(..)
         ) where
 
 import Control.Concurrent
@@ -72,4 +75,21 @@ data PlistBuddyException = PlistBuddyException String
     deriving (Show, Generic)
 
 instance Exception PlistBuddyException
+
+------------------------------------------------------------------------------
+
+data Transaction 
+ = Transaction [Write]
+ | Hash ByteString
+   deriving (Show,Read,Generic)  
+   
+data Write 
+  = Save
+  | Revert
+  | Exit
+  | Clear Value
+  | Set [Text] Value
+  | Add [Text] Value
+  | Delete [Text]
+   deriving (Show,Read,Generic)  
 

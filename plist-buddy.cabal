@@ -17,13 +17,15 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Database.PlistBuddy
-  other-modules:       Database.PlistBuddy.Command
+  other-modules:       Database.PlistBuddy.Audit
+                     , Database.PlistBuddy.Command
                      , Database.PlistBuddy.Types
                      , Database.PlistBuddy.Open
   other-extensions:    GeneralizedNewtypeDeriving
   build-depends:       base >=4.7 && <4.9
                      , base64-bytestring == 1.0.*
                      , bytestring == 0.10.*
+                     , cryptohash == 0.11.*
                      , directory == 1.2.*
                      , mtl >=2.2 && <2.3
                      , process >=1.2 && <1.5
