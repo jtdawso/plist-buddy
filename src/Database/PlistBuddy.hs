@@ -36,6 +36,8 @@ import Data.Char (ord,isSpace,isDigit)
 import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Text.Encoding as E
+import Database.PlistBuddy.Types
+
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base64 as B64
@@ -57,29 +59,8 @@ import GHC.Generics
 import Debug.Trace
 import System.IO.Error (catchIOError)
 
+
 ------------------------------------------------------------------------------
-
--- | The Remote Monad
-newtype PlistBuddy a = PlistBuddy (ExceptT PlistError (ReaderT Plist IO) a)
-  deriving (Functor,Applicative, Monad, MonadError PlistError, MonadReader Plist, MonadIO)
-
-data PlistError = PlistError String 
- deriving (Show, Eq)
-
--- | A version of `catchError` with the type specialized to PlistBuddy. Using
---   this will cause a static error if used on a non-PlistBuddy monad.
-
-catchPlistError :: PlistBuddy a -> (PlistError -> PlistBuddy a) -> PlistBuddy a
-catchPlistError = catchError
-
--- | Throw a `PlistError`. Uncaught `PlistError` exceptions will
---   be thrown by `send` as IO Exceptions.
-
-throwPlistError :: PlistError -> PlistBuddy a
-throwPlistError = throwError
-
--- | The Remote Plist 
-data Plist = Plist Pty (MVar ()) ProcessHandle Bool
 
 debugOn :: Plist -> Plist
 debugOn (Plist pty lock h _) = Plist pty lock h True
@@ -382,15 +363,6 @@ quoteBS q = "'" <> BS.concatMap esc q <> "'"
         
 ------------------------------------------------------------------------------
 
-data Value  = String Text
-            | Array [Value]       
-            | Dict [(Text,Value)] 
-            | Bool Bool
-            | Real Double
-            | Integer Integer
-            | Date UTCTime
-            | Data ByteString
-        deriving (Show, Read, Generic)
 
 
 data Quote = RawQuote ByteString          -- raw text
@@ -537,15 +509,6 @@ myReadPty pty = do
 
 myTimeout :: IO a -> IO (Maybe a)
 myTimeout = timeout (1000 * 1000)
-
------------------------------
-
--- | 'PlistBuddyException' is for fatal things,
---  like the sub-process blocks, for some reason.
-data PlistBuddyException = PlistBuddyException String
-    deriving (Show, Generic)
-
-instance Exception PlistBuddyException
 
 -----------------------------
 
