@@ -21,8 +21,10 @@ import System.Timeout
 
 -- Single threaded; assumes a lock above it.
 command :: Plist -> ByteString -> IO ByteString
-command (Plist pty _ _ d) input = todo
+command plist input = todo
   where
+    d = plist_debug plist
+    pty = plist_pty plist
     write txt = do
       when d $ print ("write"::String,txt)
       myWritePty pty txt

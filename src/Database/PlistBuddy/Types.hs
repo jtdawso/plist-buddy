@@ -12,8 +12,8 @@ module Database.PlistBuddy.Types
         , PlistBuddyException(..)
         , PlistError(..)
         -- * Audit
-        , Transaction(..)
-        , Write(..)
+        , Audit(..)
+        , Update(..)
         ) where
 
 import Control.Concurrent
@@ -53,7 +53,13 @@ throwPlistError :: PlistError -> PlistBuddy a
 throwPlistError = throwError
 
 -- | The Remote Plist 
-data Plist = Plist Pty (MVar ()) ProcessHandle Bool
+data Plist = Plist 
+  { plist_pty   :: Pty
+  , plist_lock  :: MVar ()
+  , plist_proc  :: ProcessHandle
+  , plist_debug :: Bool
+  , plist_other :: ()
+  }
         
 ------------------------------------------------------------------------------
 
@@ -78,12 +84,12 @@ instance Exception PlistBuddyException
 
 ------------------------------------------------------------------------------
 
-data Transaction 
- = Transaction [Write]
- | Hash ByteString
+data Audit
+ = Update Update    -- ^ an update to the database; changes what you see
+ | Hash ByteString  -- ^ md5 hash of the database file; typically follows a save
    deriving (Show,Read,Generic)  
    
-data Write 
+data Update 
   = Save
   | Revert
   | Exit

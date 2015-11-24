@@ -20,9 +20,13 @@ module Database.PlistBuddy
         -- * Other types
         , Value(..)
         , valueType
+        -- * Debugging
         , debugOn
          -- * Exception
         , PlistBuddyException(..)
+         -- * Audit
+        , Update(..)
+        , update
         ) where
 
 import Control.Concurrent
@@ -65,14 +69,15 @@ import System.IO.Error (catchIOError)
 ------------------------------------------------------------------------------
 
 debugOn :: Plist -> Plist
-debugOn (Plist pty lock h _) = Plist pty lock h True
+debugOn p = p { plist_debug = True }
 
 send :: Plist -> PlistBuddy a -> IO a
-send dev@(Plist pty lock _ _) (PlistBuddy m) = bracket (takeMVar lock)  (putMVar lock) $ \ () -> do
+send dev (PlistBuddy m) = bracket (takeMVar lock)  (putMVar lock) $ \ () -> do
         v <- runReaderT (runExceptT m) dev
         case v of
           Left (PlistError msg) -> fail  msg  -- an unhandled PlistError turns into an IO fail
           Right val -> return val
+  where lock = plist_lock dev
 
 -- | Returns Help Text
 help :: PlistBuddy Text
@@ -84,15 +89,15 @@ help = do
 -- | Exits the program, changes are not saved to the file
 exit :: PlistBuddy ()
 exit = do
-        plist@(Plist pty _ ph _) <- ask
+        plist <- ask
         liftIO $ do
             (void $ command plist "Exit") `catch` \ (e :: IOException) -> do { return () }
         debug ("waiting for Process on exit")
         r <- liftIO $ do
-            waitForProcess ph
+            waitForProcess (plist_proc plist)
         debug ("closing pty after process closed",r)
         liftIO $ do
-            closePty pty
+            closePty (plist_pty plist)
         debug ("done with exit, including closing pty")
         return ()
 
@@ -362,25 +367,6 @@ quoteBS q = "'" <> BS.concatMap esc q <> "'"
         esc 34 = "\\\""
         esc c  = BS.pack [c]
 
-        
-------------------------------------------------------------------------------
-
-
-
-data Quote = RawQuote ByteString          -- raw text
-           | FileQuote ByteString (IO ()) -- name of file, and finalizer
-
-instance Show Quote where
-  show (RawQuote bs)    = "RawQuote:" ++ show bs
-  show (FileQuote bs _) = "FileQuote:" ++ show bs
-
-showQuote :: Quote -> ByteString
-showQuote (RawQuote bs)    = bs
-showQuote (FileQuote bs _) = bs
-
-finalizeQuote :: Quote -> IO ()
-finalizeQuote (RawQuote {}) = return ()
-finalizeQuote (FileQuote _ m) = m
 
 quoteValue :: Value -> ByteString
 quoteValue (String txt) = quoteBS $ E.encodeUtf8 $ txt
@@ -407,10 +393,23 @@ valueType (Data {})    = "data"
 
 debug :: (Show a) => a -> PlistBuddy ()
 debug a = do
-        Plist _ _ _ d <- ask
-        when d $ do
+        plist <- ask
+        when (plist_debug plist) $ do
                 liftIO $ do
                   tid <- myThreadId
                   print (tid,a)
-                
-                
+
+
+------------------------------------------------------------------------------
+
+
+-- | 'update' invokes the respective 'PlistBuddy' function. It is uses
+--  when replying an audit trail.
+update :: Update -> PlistBuddy ()
+update Save       = save
+update Revert     = revert
+update Exit       = exit
+update (Clear v)  = clear v
+update (Set p v)  = set p v
+update (Add p v)  = add p v
+update (Delete p) = delete p

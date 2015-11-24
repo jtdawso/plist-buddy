@@ -21,21 +21,27 @@ import GHC.Generics
 
 import qualified Crypto.Hash.MD5 as MD5
 
+{-
+auditPlist :: FilePath -> Plist -> IO Plist
+auditPlist auditFile (Plist {}) = do
+  up <- 
+-}
 
-startAudit :: FilePath -> FilePath -> IO (Write -> IO ())
+startAudit :: FilePath -> FilePath -> IO (Update -> IO ())
 startAudit auditFile plistFile = do
-  return $ undefined
+  return $ \ u -> print ("update",u)
   
 snapshot :: FilePath -> IO ByteString
 snapshot file = do
   bs <- LB.readFile file
   return $! MD5.hashlazy bs
   
-issue :: Handle -> Transaction -> IO ()
+issue :: Handle -> Update -> IO ()
 issue h t = return ()
 
 -- | Find the list of 'PlistBuddy' commands to recover the most recent version of the plist.
 --   Be careful when running recover with the audit capability turned on; it can duplicate
 --   the audit trail, because recovery is also write. (This should not break anything)
-recover :: FilePath -> FilePath -> IO (PlistBuddy ())
-recover auditFile plistFile = return (return ())
+recover :: FilePath -> FilePath -> IO [Update]
+recover auditFile plistFile = return []
+
