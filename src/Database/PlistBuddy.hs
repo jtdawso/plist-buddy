@@ -37,6 +37,7 @@ import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Text.Encoding as E
 import Database.PlistBuddy.Types
+import Database.PlistBuddy.Command
 
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
@@ -418,100 +419,11 @@ openPlist fileName = handleIOErrors $ do
                     (80,24)
 
     myWritePty pty "#\n" -- 1 times in 100, you need to poke the plist-buddy
-    _ <- recvReply0 pty True
+    _ <- recvReply0 pty
     attr <- getTerminalAttributes pty
     setTerminalAttributes pty ((attr `withoutMode` EnableEcho) `withoutMode` ProcessInput) Immediately
     lock <- newMVar ()
     return $ Plist pty lock ph False
-
-command :: Plist -> ByteString -> IO ByteString
-command (Plist pty lock _ d) input = todo
-  where
-    write txt = do
-      when d $ print ("write",txt)
-      myWritePty pty txt
-
-    debug msg = when d $ do
-      tid <- myThreadId
-      print (tid,msg)
-
-    todo = do
-        write (input <> "\n")
-        r <- recvReply pty d
-        when d $ print ("read",r)
-        return $ r
-
-
-recvReply0 :: Pty -> Bool -> IO ByteString
-recvReply0 pty d = readMe []
-  where
-    prompt = "\nCommand: "
-
-    readMe rbs = do
-            v <- myReadPty pty
-            testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
-
-    testMe rbs | "#\nCommand: Unrecognized Command\nCommand: " == bs
-               = return $ ""
-               | "Command: #\nUnrecognized Command\nCommand: " == bs
-               = return $ ""
-               | otherwise
-               = readMe rbs
-      where
-              bs = rbsToByteString rbs
-
-recvReply :: Pty -> Bool -> IO ByteString
-recvReply pty d = readMe []
-  where
-    prompt = "\nCommand: "
-
-    readMe rbs = do
-            v <- myReadPty pty
-            testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
-
-    testMe rbs | prompt `isSuffixOf` rbs
-               = return $ BS.take (BS.length bs - BS.length prompt) bs
-               | "Command: " == bs
-               = return $ ""
-               | otherwise
-               = readMe rbs
-      where
-              bs = rbsToByteString rbs
-
-type RBS = [ByteString] -- reversed list of strict bytestring
-
-rbsToByteString :: RBS -> ByteString
-rbsToByteString = BS.concat . reverse
-          
-isSuffixOf :: ByteString -> RBS -> Bool
-isSuffixOf bs rbs = bs `BS.isSuffixOf` rbsToByteString rbs
-
-myWritePty :: Pty -> ByteString -> IO ()
-myWritePty pty msg = do
-  r <- myTimeout $ do
-      threadWaitWritePty pty
-      writePty pty msg
-  case r of
-    Just () -> return ()
-    Nothing -> do
-      throw $ PlistBuddyException "timeout when writing"
-
-myReadPty :: Pty -> IO ByteString
-myReadPty pty = do
-  r <- myTimeout $ do
-      threadWaitReadPty pty
-      tryReadPty pty
-  case r of
-    Just (Left {}) -> myReadPty pty
-    Just (Right v) -> return v
-    Nothing        -> do
-      throw $ PlistBuddyException "timeout when reading"
-
-myTimeout :: IO a -> IO (Maybe a)
-myTimeout = timeout (1000 * 1000)
-
------------------------------
-
 
 debug :: (Show a) => a -> PlistBuddy ()
 debug a = do
