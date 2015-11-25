@@ -24,30 +24,27 @@ import qualified Crypto.Hash.MD5 as MD5
 
 auditOn :: FilePath -> Plist -> IO Plist
 auditOn auditFile plist = do
-  up <- startAudit auditFile (plist_file plist)
-  return $ plist { plist_trail = up }
-
-startAudit :: FilePath -> FilePath -> IO (Trail -> IO ())
-startAudit auditFile plistFile = do
+  let plistFile = (plist_file plist)
   -- if there is no file, then this creates an empty file first
   au <- openBinaryFile auditFile AppendMode
   -- state what we are auditing, with blank line(s)
   -- in case the previous line was incomplete
   hPutStr au $ "\n\n" ++ take 72 (cycle "-") ++ "\n" 
   t <- getCurrentTime
-  h <- snapshot plistFile
+  h <- snapshot plist
   issue au $ t :! h
   -- and append to the audit file
-  return $ \ u -> do
-    t <- getCurrentTime
-    issue au $ t :! u
-    case u of
-      Exit -> hClose au
-      _     -> return ()
+  let up u = do
+        t <- getCurrentTime
+        issue au $ t :! u
+        case u of
+          Exit -> hClose au
+          _    -> return ()
+  return $ plist { plist_trail = up }
 
-snapshot :: FilePath -> IO Trail
-snapshot file = do
-  bs <- LB.readFile file
+snapshot :: Plist -> IO Trail
+snapshot plist = do
+  bs <- LB.readFile (plist_file plist)
   return $! Hash $! B16.encode $! MD5.hashlazy bs
   
 issue :: Show a => Handle -> a -> IO ()

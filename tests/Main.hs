@@ -32,20 +32,23 @@ clearDB :: IO ()
 clearDB = do
   TIO.writeFile "test.plist" "{}" 
 
-openConnection :: IO Plist
-openConnection = do
+openConnection :: Bool -> IO Plist
+openConnection audit = do
     d <- openPlist "test.plist"
     send d $ clear (Dict [])
-    return -- $ debugOn 
-      d
+    if audit 
+    then auditOn "test.audit" d
+    else return d
         
 closeConnection :: Plist -> IO ()
 closeConnection d = send d $ exit
 
 -- only for tests that write then read
-withPlistConnection :: (Plist -> IO ()) -> IO ()
-withPlistConnection = guardPlistBuddyException 
-                    . bracket openConnection closeConnection
+withPlistConnection :: Bool -> (Plist -> IO ()) -> IO ()
+withPlistConnection audit 
+                    = guardPlistBuddyException 
+                    . bracket (openConnection audit)
+                              closeConnection
 
 guardPlistBuddyException :: IO a -> IO a
 guardPlistBuddyException m = m `catch` \ (PlistBuddyException msg) -> do
@@ -55,34 +58,35 @@ guardPlistBuddyException m = m `catch` \ (PlistBuddyException msg) -> do
 main :: IO ()
 main = hspec $ do
   beforeAll clearDB $ do
+
     describe "inital plist" $ modifyMaxSuccess (\ x -> 100) $ do
 
-      it "check initial dict is an dictionary" $ withPlistConnection $ \ d -> do
+      it "check initial dict is an dictionary" $ withPlistConnection False $ \ d -> do
         r0 <- send d $ get []
         r0 `shouldBe` Dict []
 
-      it "check reset to array" $ withPlistConnection $ \ d -> do
+      it "check reset to array" $ withPlistConnection False $ \ d -> do
         _ <- send d $ clear (Array [])
         r0 <- send d $ get []
         r0 `shouldBe` Array []
       
-      it "check reset to back to an dict" $ withPlistConnection $ \ d -> do
+      it "check reset to back to an dict" $ withPlistConnection False $ \ d -> do
         _ <- send d $ clear (Array [])
         _ <- send d $ clear (Dict [])
         r0 <- send d $ get []
         r0 `shouldBe` Dict []
 
       it "check adding a value at top level" $ 
-        property $ \ (Label lbl) (OneValue v) -> withPlistConnection $ \ d -> do
+        property $ \ (Label lbl) (OneValue v) audit -> withPlistConnection audit $ \ d -> do
                 debug $ ("add val top",lbl,v)
                 _ <- send d $ add [lbl] v
                 r0 <- send d $ get []
                 r0 `shouldBe` Dict [(lbl,v)]
 
       it "check adding then setting a value at top level" $ 
-        property $ \ (Label lbl) (PrimValue v1) ->
+        property $ \ (Label lbl) (PrimValue v1) audit ->
           forAll (arbitrarySameType v1) $ \ v2 ->
-            withPlistConnection $ \ d -> do
+            withPlistConnection audit $ \ d -> do
               debug $ ("add then set top",lbl,v1,v2)
               _ <- send d $ add [lbl] v1
               _ <- send d $ set [lbl] v2
@@ -90,7 +94,7 @@ main = hspec $ do
               r0 `shouldBe` Dict [(lbl,v2)]
 
       it "populate a DB" $ 
-        property $ \ (DictValue v) -> withPlistConnection $ \ d -> do
+        property $ \ (DictValue v) audit -> withPlistConnection audit $ \ d -> do
           debug $ ("populate",v)
           r0 <- send d $ do
             populateDict v
@@ -98,28 +102,28 @@ main = hspec $ do
           r0 `shouldBe` v
 
       it "test deeper get" $ 
-        property $ \ (DictValue v) -> 
+        property $ \ (DictValue v) audit -> 
           forAll (arbitraryReadPath 0.8 v) $ \ (Path ps,v') -> do
-            withPlistConnection $ \ d -> do
+            withPlistConnection audit $ \ d -> do
               send d $ populateDict v
               r0 <- send d $ get ps
               r0 `shouldBe` v'
 
       it "test deepest get" $ 
-        property $ \ (DictValue v) -> 
+        property $ \ (DictValue v) audit -> 
           forAll (arbitraryReadPath 1.0 v) $ \ (Path ps,v') -> do
-            withPlistConnection $ \ d -> do
+            withPlistConnection audit $ \ d -> do
               send d $ populateDict v
               r0 <- send d $ get ps
               r0 `shouldBe` v'
 
 
       it "test deepest set then get" $ 
-        property $ \ (DictValue v) -> 
+        property $ \ (DictValue v) audit -> 
           forAll (arbitraryReadPath 1.0 v) $ \ (Path ps,v1) -> 
             not (null ps) && (case v1 of { Dict {} -> False; Array {} -> False ; _-> True}) ==>
             forAll (arbitrarySameType v1) $ \ v2 ->
-              withPlistConnection $ \ d -> do
+              withPlistConnection audit $ \ d -> do
                 debug (v1,v2,ps)
                 send d $ populateDict v
                 send d $ set ps v2
@@ -127,10 +131,10 @@ main = hspec $ do
                 r0 `shouldBe` v2
 
       it "test delete" $ 
-        property $ \ (DictValue v) -> 
+        property $ \ (DictValue v) audit -> 
           forAll (arbitraryReadPath 1.0 v) $ \ (Path ps,v1) -> 
             not (null ps) ==>
-              withPlistConnection $ \ d -> do
+              withPlistConnection audit $ \ d -> do
 --                print (v1,ps)
                 (r1,parent) <- send d $ do
                   populateDict v
@@ -149,7 +153,7 @@ main = hspec $ do
                         (r1,length xs) `shouldBe` (v1,length xs' + 1)
 
       it "check for bad path error handling" $ 
-        property $ \ (DictValue v) (Path p) -> p `notIn` v ==>  withPlistConnection $ \ d -> do
+        property $ \ (DictValue v) (Path p) audit -> p `notIn` v ==>  withPlistConnection audit $ \ d -> do
           debug $ ("bad path",v,p)
           r <- (send d $ (do
                   populateDict v

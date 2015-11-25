@@ -92,6 +92,7 @@ help = do
 exit :: PlistBuddy ()
 exit = do
         plist <- ask
+        liftIO $ plist_trail plist Exit
         liftIO $ do
             (void $ command plist "Exit") `catch` \ (e :: IOException) -> do { return () }
         debug ("waiting for Process on exit")
@@ -107,9 +108,12 @@ exit = do
 save :: PlistBuddy ()
 save = do
         plist <- ask
+        liftIO $ plist_trail plist Save
         res <- liftIO $ command plist "Save"
         case res of
-          "Saving..." -> return ()
+          "Saving..." -> do
+                liftIO $ plist_trail plist =<< snapshot plist
+                return ()
           _ -> error $ "save failed: " <> show res
 
 
@@ -117,6 +121,7 @@ save = do
 revert :: PlistBuddy ()
 revert = do
         plist <- ask
+        liftIO $ plist_trail plist Revert
         res <- liftIO $ command plist "Revert"
         case res of
           "Reverting to last saved state..." -> return ()
@@ -127,6 +132,7 @@ revert = do
 clear :: Value -> PlistBuddy ()
 clear value = do
         plist <- ask
+        liftIO $ plist_trail plist $ Clear value
         ty <- case value of
                      Array [] -> return $ valueType value
                      Array _  -> error "add: array not empty"
@@ -232,13 +238,14 @@ get entry = do
 -- You can not set dictionaries or arrays.
 set :: [Text] -> Value -> PlistBuddy ()
 set []    value = error "Can not set empty path"
-set entry (Date d) = mergeDate entry d
-set entry (Data d) = importData entry d
+set entry (Date d) = mergeDate entry d (Set entry $ Date $ d)
+set entry (Data d) = importData entry d (Set entry $ Data $ d)
 set entry (Dict xs) = error "set: dict not allowed"
 set entry (Array xs) = error "set: array not allowed"
 set entry value = do
         debug ("set",entry,value,valueType value)
         plist <- ask
+        liftIO $ plist_trail plist $ Set entry value
         res <- liftIO $ command plist $ "Set " <> BS.concat [ ":" <> quoteText e | e <- entry ]
                                       <> " " <> quoteValue value
         case res of
@@ -250,13 +257,14 @@ set entry value = do
 -- You can add *empty* dictionaries or arrays.
 add :: [Text] -> Value -> PlistBuddy ()
 add [] value = error "Can not add to an empty path"
-add entry (Date d) = mergeDate entry d
-add entry (Data d) = importData entry d
+add entry (Date d) = mergeDate entry d (Add entry $ Date $ d)
+add entry (Data d) = importData entry d (Add entry $ Data $ d)
 add entry (Dict xs) | not (null xs) = error "add: dict not empty"
 add entry (Array xs) | not (null xs) = error "add: array not empty"
 add entry value = do
         debug ("add",entry,value,valueType value)
         plist <- ask
+        liftIO $ plist_trail plist $ Add entry value
         res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quoteText e | e <- entry ]
                                       <> " " <> valueType value <> " "
                                       <> quoteValue value
@@ -269,16 +277,18 @@ delete :: [Text] -> PlistBuddy ()
 delete entry = do
         debug ("delete",entry)
         plist <- ask
+        liftIO $ plist_trail plist $ Delete entry
         res <- liftIO $ command plist $ "delete " <>  BS.concat [ ":" <> quoteText e | e <- entry ]
         case res of
           "" -> return ()
           _  -> throwPlistError $ PlistError $ "delete failed: " ++ show res
 
 
-importData :: [Text] -> ByteString -> PlistBuddy ()
-importData entry d = do
+importData :: [Text] -> ByteString -> Trail -> PlistBuddy ()
+importData entry d t = do
   debug ("import(add/set)",entry,d)
   plist <- ask
+  liftIO $ plist_trail plist t
   nm <- liftIO $ do
     (nm,h) <- openBinaryTempFile "/tmp" "plist-data-.tmp"
     BS.hPutStr h d -- write temp file with the binary data
@@ -295,8 +305,8 @@ importData entry d = do
 
 -- a version of add/set that uses merge, because the date writing format
 -- has a missing hour in Fall, because of timezones.
-mergeDate :: [Text] -> UTCTime -> PlistBuddy ()
-mergeDate entry d = do
+mergeDate :: [Text] -> UTCTime -> Trail -> PlistBuddy ()
+mergeDate entry d t = do
   debug ("merge(set/get)",entry,d)
   plist <- ask
   v <- get (init entry) -- 'orable way of doing this. Best of bad options
