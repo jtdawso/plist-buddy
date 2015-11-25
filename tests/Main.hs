@@ -31,6 +31,8 @@ import Data.Char (isDigit)
 clearDB :: IO ()
 clearDB = do
   TIO.writeFile "test.plist" "{}" 
+  TIO.writeFile "test.audit" ""
+  
 
 openConnection :: Bool -> IO Plist
 openConnection audit = do
