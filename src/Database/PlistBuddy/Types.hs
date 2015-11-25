@@ -13,7 +13,7 @@ module Database.PlistBuddy.Types
         , PlistError(..)
         -- * Audit
         , Audit(..)
-        , Update(..)
+        , Trail(..)
         ) where
 
 import Control.Concurrent
@@ -58,7 +58,8 @@ data Plist = Plist
   , plist_lock  :: MVar ()
   , plist_proc  :: ProcessHandle
   , plist_debug :: Bool
-  , plist_other :: ()
+  , plist_file  :: FilePath
+  , plist_trail :: Trail -> IO ()
   }
         
 ------------------------------------------------------------------------------
@@ -85,11 +86,10 @@ instance Exception PlistBuddyException
 ------------------------------------------------------------------------------
 
 data Audit
- = Update Update    -- ^ an update to the database; changes what you see
- | Hash ByteString  -- ^ md5 hash of the database file; typically follows a save
+ = UTCTime :! Trail 
    deriving (Show,Read,Generic)  
    
-data Update 
+data Trail 
   = Save
   | Revert
   | Exit
@@ -97,5 +97,6 @@ data Update
   | Set [Text] Value
   | Add [Text] Value
   | Delete [Text]
-   deriving (Show,Read,Generic)  
+  | Hash ByteString          -- ^ post-save
+    deriving (Show,Read,Generic)  
 

@@ -25,8 +25,9 @@ module Database.PlistBuddy
          -- * Exception
         , PlistBuddyException(..)
          -- * Audit
-        , Update(..)
-        , update
+        , Trail(..)
+        , auditOn
+        , replay
         ) where
 
 import Control.Concurrent
@@ -40,6 +41,7 @@ import Data.Char (ord,isSpace,isDigit)
 import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Text.Encoding as E
+import Database.PlistBuddy.Audit
 import Database.PlistBuddy.Command
 import Database.PlistBuddy.Open
 import Database.PlistBuddy.Types
@@ -403,13 +405,13 @@ debug a = do
 ------------------------------------------------------------------------------
 
 
--- | 'update' invokes the respective 'PlistBuddy' function. It is uses
---  when replying an audit trail.
-update :: Update -> PlistBuddy ()
-update Save       = save
-update Revert     = revert
-update Exit       = exit
-update (Clear v)  = clear v
-update (Set p v)  = set p v
-update (Add p v)  = add p v
-update (Delete p) = delete p
+-- | 'replay' invokes the respective 'PlistBuddy' function. It is uses
+--  when replying an audit replay.
+replay :: Trail -> PlistBuddy ()
+replay Save       = save
+replay Revert     = revert
+replay Exit       = exit
+replay (Clear v)  = clear v
+replay (Set p v)  = set p v
+replay (Add p v)  = add p v
+replay (Delete p) = delete p
