@@ -315,8 +315,9 @@ arbitraryUpdates n v = do
   return $ (u,v') : rest
 
 arbitraryUpdate :: Value -> Gen (PlistBuddy (),Value)
-arbitraryUpdate v = oneof
-  [ arbitraryAdd v
+arbitraryUpdate v = frequency
+  [ (2, arbitraryAdd v)
+  , (2, arbitrarySet v)
   ]
 
 -- for now, does not go deep
@@ -336,6 +337,25 @@ arbitraryAdd = addMe  []
       return (add (p ++ [lbl]) val,Array $ vs ++ [val])      
     addMe p other = return (return (), other)
     
+arbitrarySet :: Value -> Gen (PlistBuddy (),Value)
+arbitrarySet = setMe []
+  where
+    setMe p (Dict []) = return (return (), Dict [])
+    setMe p (Dict xs) = do
+      Label lbl <- Label <$> elements (map fst xs)
+      case lookup lbl xs of
+        Just v -> do 
+          if valueType v `elem` ["array","dict"]
+          then return (return (), Dict xs)
+          else do 
+              v' <- arbitrarySameType v
+              return ( set (p ++ [lbl]) v'
+                     , Dict [ if l == lbl then (l,v') else (l,x) | (l,x) <-  xs ]
+                     )
+        Nothing -> error $ "should never happen" ++ show (lbl,map fst xs,xs)
+-- for now
+--    setMe p (Array vs) = 
+    setMe p other = return (return (), other)
       
 
 {-
