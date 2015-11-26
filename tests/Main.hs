@@ -316,8 +316,10 @@ arbitraryUpdates n v = do
 
 arbitraryUpdate :: Value -> Gen (PlistBuddy (),Value)
 arbitraryUpdate v = frequency
-  [ (2, arbitraryAdd v)
-  , (2, arbitrarySet v)
+  [ (200, arbitraryAdd v)
+  , (200, arbitrarySet v)
+  , (100, arbitraryDelete v)
+  , (1, return (clear $ Dict [],Dict []))  -- Infrequently!
   ]
 
 -- for now, does not go deep
@@ -357,6 +359,16 @@ arbitrarySet = setMe []
 --    setMe p (Array vs) = 
     setMe p other = return (return (), other)
       
+arbitraryDelete :: Value -> Gen (PlistBuddy (),Value)
+arbitraryDelete = delMe []
+  where
+    delMe p (Dict []) = return (return (), Dict [])
+    delMe p (Dict xs) = do
+      Label lbl <- Label <$> elements (map fst xs)
+      return ( delete (p ++ [lbl])
+             , Dict [ (l,x) | (l,x) <-  xs, l /= lbl ]
+             )
+    delMe p other = return (return (), other)
 
 {-
     addMe p (Array vs) = do
