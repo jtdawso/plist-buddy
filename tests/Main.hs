@@ -327,9 +327,9 @@ arbitraryAdd = addMe  []
     addMe p (Dict xs) = do
       Label lbl <- arbitrary
       OneValue val <- arbitrary
-      when (lbl `elem` map fst xs) $ do
-        discard
-      return (add (p ++ [lbl]) val,Dict $ xs ++ [(lbl,val)])
+      if (lbl `elem` map fst xs)
+      then addMe p (Dict xs)  -- try again
+      else return (add (p ++ [lbl]) val,Dict $ xs ++ [(lbl,val)])
     addMe p (Array vs) = do
       let lbl = T.pack (show $ length vs) -- for now, append at end
       OneValue val <- arbitrary
