@@ -26,8 +26,13 @@ module Database.PlistBuddy
         , PlistBuddyException(..)
          -- * Audit
         , Trail(..)
+        , AuditTrail(..)
         , auditOn
+        , auditOff
         , replay
+        , recover
+        , hashcode
+        , findTrail
         ) where
 
 import Control.Concurrent
@@ -44,7 +49,7 @@ import Data.Text.Encoding as E
 import Database.PlistBuddy.Audit
 import Database.PlistBuddy.Command
 import Database.PlistBuddy.Open
-import Database.PlistBuddy.Types
+import Database.PlistBuddy.Types as Types
 
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
@@ -108,11 +113,11 @@ exit = do
 save :: PlistBuddy ()
 save = do
         plist <- ask
-        liftIO $ plist_trail plist Save
         res <- liftIO $ command plist "Save"
         case res of
-          "Saving..." -> do
-                liftIO $ plist_trail plist =<< snapshot plist
+          "Saving..." -> liftIO $ do
+                bs <- hashcode (plist_file plist)
+                liftIO $ plist_trail plist $ Save bs
                 return ()
           _ -> error $ "save failed: " <> show res
 
@@ -121,10 +126,11 @@ save = do
 revert :: PlistBuddy ()
 revert = do
         plist <- ask
-        liftIO $ plist_trail plist Revert
         res <- liftIO $ command plist "Revert"
         case res of
-          "Reverting to last saved state..." -> return ()
+          "Reverting to last saved state..." -> do
+            liftIO $ plist_trail plist Revert
+            return ()
           _ -> error $ "revert failed: " ++ show res
 
 -- | Clear Type - Clears out all existing entries, and creates root of a value,
@@ -132,7 +138,6 @@ revert = do
 clear :: Value -> PlistBuddy ()
 clear value = do
         plist <- ask
-        liftIO $ plist_trail plist $ Clear value
         ty <- case value of
                      Array [] -> return $ valueType value
                      Array _  -> error "add: array not empty"
@@ -141,7 +146,9 @@ clear value = do
                      _        -> error "adding a non dict/array to the root path"
         res <- liftIO $ command plist $ "Clear " <> ty
         case res of
-          "Initializing Plist..." -> return ()
+          "Initializing Plist..." -> do
+            liftIO $ plist_trail plist $ Clear value
+            return ()
           _  -> fail $ "add failed: " ++ show res
 
 -- | Print Entry - Gets value of Entry.
@@ -245,11 +252,12 @@ set entry (Array xs) = error "set: array not allowed"
 set entry value = do
         debug ("set",entry,value,valueType value)
         plist <- ask
-        liftIO $ plist_trail plist $ Set entry value
         res <- liftIO $ command plist $ "Set " <> BS.concat [ ":" <> quoteText e | e <- entry ]
                                       <> " " <> quoteValue value
         case res of
-          "" -> return ()
+          "" -> do 
+            liftIO $ plist_trail plist $ Set entry value
+            return ()
           "Unrecognized Date Format" -> error $ "Unrecognized"
           _  -> throwPlistError $ PlistError $ "set failed: " ++ show res
     
@@ -264,12 +272,13 @@ add entry (Array xs) | not (null xs) = error "add: array not empty"
 add entry value = do
         debug ("add",entry,value,valueType value)
         plist <- ask
-        liftIO $ plist_trail plist $ Add entry value
         res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quoteText e | e <- entry ]
                                       <> " " <> valueType value <> " "
                                       <> quoteValue value
         case res of
-          "" -> return ()
+          "" -> do
+            liftIO $ plist_trail plist $ Add entry value
+            return ()
           _  -> throwPlistError $ PlistError $ "add failed: " ++ show res
 
 -- | Delete Entry - Deletes Entry from the plist
@@ -277,10 +286,11 @@ delete :: [Text] -> PlistBuddy ()
 delete entry = do
         debug ("delete",entry)
         plist <- ask
-        liftIO $ plist_trail plist $ Delete entry
         res <- liftIO $ command plist $ "delete " <>  BS.concat [ ":" <> quoteText e | e <- entry ]
         case res of
-          "" -> return ()
+          "" -> do
+            liftIO $ plist_trail plist $ Delete entry
+            return ()
           _  -> throwPlistError $ PlistError $ "delete failed: " ++ show res
 
 
@@ -288,7 +298,6 @@ importData :: [Text] -> ByteString -> Trail -> PlistBuddy ()
 importData entry d t = do
   debug ("import(add/set)",entry,d)
   plist <- ask
-  liftIO $ plist_trail plist t
   nm <- liftIO $ do
     (nm,h) <- openBinaryTempFile "/tmp" "plist-data-.tmp"
     BS.hPutStr h d -- write temp file with the binary data
@@ -299,7 +308,9 @@ importData entry d t = do
                                 <> (quoteText $ T.pack $ nm)
   liftIO $ removeFile nm
   case res of
-    "" -> return ()
+    "" -> do
+      liftIO $ plist_trail plist t
+      return ()
     _  -> throwPlistError $ PlistError $ "import(add/set) failed: " ++ show res
 
 
@@ -327,7 +338,9 @@ mergeDate entry d t = do
             removeFile nm
             return res
       case res of
-        "" -> return ()
+        "" -> do
+          liftIO $ plist_trail plist t
+          return ()
         _  -> throwPlistError $ PlistError $ "merge(set/get) failed: " ++ show res
     Array vs | T.all isDigit (last entry) -> do
       res <- liftIO $ do
@@ -418,10 +431,11 @@ debug a = do
 -- | 'replay' invokes the respective 'PlistBuddy' function. It is uses
 --  when replying an audit replay.
 replay :: Trail -> PlistBuddy ()
-replay Save       = save
+replay (Save {})  = save
 replay Revert     = revert
 replay Exit       = exit
 replay (Clear v)  = clear v
 replay (Set p v)  = set p v
 replay (Add p v)  = add p v
 replay (Delete p) = delete p
+replay (Types.Start {}) = return ()

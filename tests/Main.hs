@@ -11,7 +11,7 @@ import qualified Data.ByteString as BS
 
 import Test.Hspec
 import Test.Hspec.QuickCheck
-import Test.QuickCheck
+import Test.QuickCheck hiding (replay)
 import Test.QuickCheck.Exception
 import Control.Exception (evaluate, bracket, catch)
 
@@ -28,11 +28,15 @@ import Control.Monad.Reader
 import System.Environment
 import Data.Char (isDigit)
 
+clearAudit :: IO ()
+clearAudit = do
+  TIO.writeFile "test.audit" ""  
+
+
 clearDB :: IO ()
 clearDB = do
   TIO.writeFile "test.plist" "{}" 
-  TIO.writeFile "test.audit" ""
-  
+  TIO.writeFile "test.audit" ""  
 
 openConnection :: Bool -> IO Plist
 openConnection audit = do
@@ -60,7 +64,6 @@ guardPlistBuddyException m = m `catch` \ (PlistBuddyException msg) -> do
 main :: IO ()
 main = hspec $ do
   beforeAll clearDB $ do
-
     describe "inital plist" $ modifyMaxSuccess (\ x -> 100) $ do
 
       it "check initial dict is an dictionary" $ withPlistConnection False $ \ d -> do
@@ -165,6 +168,20 @@ main = hspec $ do
 
           r `shouldBe` True
 
+      it "test get/set/delete sequences" $ 
+        property $ \ audit ->
+          forAll (modSized 8 return) $ \ n ->
+          forAll (Blind <$> arbitraryUpdates n (Dict [])) $ \ (Blind updates) ->
+              withPlistConnection audit $ \ d -> do
+                send d $ clear (Dict [])
+                let xs = []
+                xs <- sequence [ send d $ do
+                            u -- the update
+                            r <- get []
+                            return (v,r)
+                  | (u,v) <- updates 
+                  ]
+                map fst xs `shouldBe` map snd xs
 
   beforeAll clearDB $ do
     describe "plist modification" $ do  
@@ -211,6 +228,55 @@ main = hspec $ do
             return r
           r0 `shouldBe` v            
 
+
+  beforeAll clearDB $ do
+    describe "plist audit test" $ do  
+      it "test get/set/delete sequences, with basic audit trail usage" $ 
+          forAll (modSized 8 return) $ \ n1 ->
+          forAll (modSized 8 return) $ \ n2 ->
+          forAll (modSized 8 return) $ \ n3 ->
+          let s = Dict [] in
+          forAll (Blind <$> arbitraryUpdates n1 (s)                ) $ \ (Blind updates1) ->
+          forAll (Blind <$> arbitraryUpdates n2 (lastOf s $ updates1)) $ \ (Blind updates2) ->
+          forAll (Blind <$> arbitraryUpdates n3 (lastOf s $ updates1 ++ updates2)) $ \ (Blind updates3) ->
+             do d <- openPlist "test.plist"
+
+                -- Populate dictionary randomly
+                send d $ clear (Dict [])  -- clear dict
+                sequence_ [ send d u | (u,_) <- updates1 ]
+                send d $ save
+                send d $ exit
+
+                -- Reload, with (new) audit
+                clearAudit
+                d <- openPlist "test.plist"
+                d <- auditOn "test.audit" d
+                sequence_ [ send d u | (u,_) <- updates2 ]
+                send d $ save
+
+                -- And do more stuff, without saving, but with audit
+                sequence_ [ send d u | (u,_) <- updates3 ]                
+                auditOff d -- turn off audit, before turning exiting the plist
+                send d $ exit
+
+                -- now need to restore
+                h <- hashcode "test.plist"
+--                print ("hashcode",h)
+                auditTrails <- recover "test.audit"
+--                print ("audit trails",auditTrails)
+                let trail = findTrail h auditTrails
+                d <- openPlist "test.plist"
+                send d $ sequence_ $ map replay trail
+                let target = lastOf s $ updates1 ++ updates2 ++ updates3
+                r0 <- send d $ get []
+                send d $ exit
+                r0 `shouldBe` target
+
+
+              
+lastOf :: Value -> [(a,Value)] -> Value
+lastOf v xs = last (v : map snd xs)
+
 populateDict :: Value -> PlistBuddy ()
 populateDict (Dict xs) = 
    do sequence_ [ populate (Path $ [i]) v | (i,v) <- xs ]
@@ -239,6 +305,87 @@ populate (Path ps) val =
                          [] -> False
                          (v:_) -> ps `notIn` v
 _ `notIn` _          = True
+
+
+arbitraryUpdates :: Int -> Value -> Gen [(PlistBuddy (),Value)]
+arbitraryUpdates 0 v = return []
+arbitraryUpdates n v = do
+  (u,v') <- arbitraryUpdate v
+  rest <- arbitraryUpdates (n-1) v' 
+  return $ (u,v') : rest
+
+arbitraryUpdate :: Value -> Gen (PlistBuddy (),Value)
+arbitraryUpdate v = oneof
+  [ arbitraryAdd v
+  ]
+
+-- for now, does not go deep
+-- TODO: make this go deeper (randomly)
+arbitraryAdd :: Value -> Gen (PlistBuddy (),Value)
+arbitraryAdd = addMe  []
+  where
+    addMe p (Dict xs) = do
+      Label lbl <- arbitrary
+      OneValue val <- arbitrary
+      when (lbl `elem` map fst xs) $ do
+        discard
+      return (add (p ++ [lbl]) val,Dict $ xs ++ [(lbl,val)])
+    addMe p (Array vs) = do
+      let lbl = T.pack (show $ length vs) -- for now, append at end
+      OneValue val <- arbitrary
+      return (add (p ++ [lbl]) val,Array $ vs ++ [val])      
+    addMe p other = return (return (), other)
+    
+      
+
+{-
+    addMe p (Array vs) = do
+      let lbl = T.pack (show $ length vs) -- for now, append at end
+      OneValue val <- arbitrary
+      vs <- sequence $ 
+          [ return [ addMe (p ++ [T.pack $ show $ i]) v | (v,i) <- xs `zip` [(0::Int)..] ]
+      return $ concat xs
+    addMe p (Dict xs) = do
+      Label lbl <- arbitrary
+      OneValue val <- arbitrary
+      xs <- sequence $ 
+          [ return [ (add (p ++ [lbl]) val, Dict (xs ++ [(lbl,val)]))] 
+          |  not (lbl `elem` map fst xs) ] ++
+          [ addMe (p ++ [l]) v | (l,v) <- xs ]
+      return $ concat xs
+    addMe p other = return []
+-}      
+
+{-
+arbitraryAdd :: Value -> Gen [(PlistBuddy (),Value)]
+addInValue = addMe []
+  where
+    addMe p (Array vs) = do
+      let lbl = T.pack (show $ length vs) -- for now, append at end
+      OneValue val <- arbitrary
+      vs <- sequence $ 
+          [ return [ addMe (p ++ [T.pack $ show $ i]) v | (v,i) <- xs `zip` [(0::Int)..] ]
+      return $ concat xs
+      
+    addMe p (Dict xs) = do
+      Label lbl <- arbitrary
+      OneValue val <- arbitrary
+      xs <- sequence $ 
+          [ return [ (add (p ++ [lbl]) val, Dict (xs ++ [(lbl,val)]))] 
+          |  not (lbl `elem` map fst xs) ] ++
+          [ addMe (p ++ [l]) v | (l,v) <- xs ]
+      return $ concat xs
+    addMe p other = return []
+-}
+{-
+-- Set of commands that change the value somehow
+deleteInValue :: Value -> Gen [PlistBuddy ()]
+deleteInValue = del []
+ where
+   del (Dict xs)
+   del (Array vs)  = [ n <- [0..(length n - 1)]
+   del p other     = delete p
+-}
 
 {-
     -- TO ADD
@@ -457,3 +604,5 @@ debug :: Show a => a -> IO ()
 debug = const $ return ()
 --debug = print
 
+
+-- TODO: make all labels length 1, and test for testing

@@ -14,6 +14,7 @@ module Database.PlistBuddy.Types
         -- * Audit
         , Audit(..)
         , Trail(..)
+        , AuditTrail(..)
         ) where
 
 import Control.Concurrent
@@ -59,7 +60,8 @@ data Plist = Plist
   , plist_proc  :: ProcessHandle
   , plist_debug :: Bool
   , plist_file  :: FilePath
-  , plist_trail :: Trail -> IO ()
+  , plist_trail :: Trail -> IO ()   -- audit information
+  , plist_launder :: IO ()          -- close audit without issuing an exit; for testing
   }
         
 ------------------------------------------------------------------------------
@@ -85,18 +87,21 @@ instance Exception PlistBuddyException
 
 ------------------------------------------------------------------------------
 
+data AuditTrail = AuditTrail ByteString [Trail] (Maybe ByteString)
+   deriving (Show,Read,Generic)  
+   
 data Audit
  = UTCTime :! Trail 
    deriving (Show,Read,Generic)  
    
 data Trail 
-  = Save
+  = Save ByteString       -- ^ hash code of saved file
   | Revert
   | Exit
   | Clear Value
   | Set [Text] Value
   | Add [Text] Value
   | Delete [Text]
-  | Hash ByteString          -- ^ post-save
+  | Start ByteString      -- ^ hash code at start of audit capture
     deriving (Show,Read,Generic)  
 

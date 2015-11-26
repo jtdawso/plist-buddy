@@ -33,6 +33,6 @@ openPlist fileName = handleIOErrors $ do
     attr <- getTerminalAttributes pty
     setTerminalAttributes pty ((attr `withoutMode` EnableEcho) `withoutMode` ProcessInput) Immediately
     lock <- newMVar ()
-    return $ Plist pty lock ph False fileName (const $ return $ ())
+    return $ Plist pty lock ph False fileName (const $ return $ ()) (return ())
 
                 
