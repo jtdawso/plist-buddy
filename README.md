@@ -23,3 +23,16 @@ Command | Notes
 Copy entrySrc entryDst | Copies the entrySrc property to entryDst.
 Merge file [entry] | Adds the contents of plist file to entry.
 Import entry file  | Creates or sets entry to the contents of file.
+
+
+Testing
+-------
+
+With hpc:
+
+````
+cabal clean
+cabal configure --enable-coverage   --enable-tests
+cabal build
+cabal test
+````

@@ -47,7 +47,7 @@ executable plist-buddy
                      , mtl >=2.2 && <2.3
                      , hspec
                      , process >=1.2 && <1.5
-                     , posix-pty == 0.2.*
+                     , posix-pty == 0.2.1
                      , QuickCheck == 2.8.*
                      , text      == 1.2.*
                      , time      == 1.5.*
@@ -64,7 +64,7 @@ test-suite test-plist-buddy
                      , mtl >=2.2 && <2.3
                      , hspec
                      , process >=1.2 && <1.5
-                     , posix-pty == 0.2.*
+                     , posix-pty == 0.2.1
                      , QuickCheck == 2.8.*
                      , text      == 1.2.*
                      , time      == 1.5.*
