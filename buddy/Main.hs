@@ -38,7 +38,8 @@ replayMain :: [String] -> IO ()
 replayMain [auditFile,plistFile] = do
     trails <- recover auditFile
     let fastForward h [] = return ()
-        fastForward h (AuditTrail bs ts done : rest) | bs /= h -> do
+{-
+        fastForward h (AuditTrail bs ts done : rest) | bs /= h = do
           putStrLn $ "hash codes differ; stopping"
           putStrLn $ "    found: " ++ T.unpack (E.decodeUtf8 h')
           putStrLn $ "expecting: " ++ T.unpack (E.decodeUtf8 t)
@@ -65,5 +66,6 @@ replayMain [auditFile,plistFile] = do
                   putStrLn $ "expecting: " ++ T.unpack (E.decodeUtf8 t)
             xs   -> do
               putStrLn $ " too many trails (" ++ show (length xs) ++ ") found"
+-}
     h <- hashcode auditFile
-    fastForward h
+    fastForward h []

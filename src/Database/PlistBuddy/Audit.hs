@@ -26,7 +26,6 @@ import Debug.Trace
 
 auditOn :: FilePath -> Plist -> IO Plist
 auditOn auditFile plist = do
-  let plistFile = plist_file plist
   -- if there is no file, then this creates an empty file first
   au <- openFile auditFile AppendMode
   -- state what we are auditing, with blank line(s)
