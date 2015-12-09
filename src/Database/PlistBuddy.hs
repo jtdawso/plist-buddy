@@ -486,10 +486,31 @@ backgroundPlist n p = do
 --   The semantics of bgSend is the same as saving after every command, provided you wait long enough
 bgSend :: BackgroundPlist -> PlistBuddy a -> IO a
 bgSend bg@(BackgroundPlist n p v) m = do
-  b <- p
-  send b $ do
-    r <- m
-    save
-    exit
-    return r
+  st <- takeMVar v
+  case st of
+    Sleeping -> do
+        dev <- p
+        forkIO $ autoSave bg
+        r <- send dev m -- TODO: handle exceptions here
+        putMVar v $ Awake dev  
+        return r
+    Awake dev -> do
+        r <- send dev m -- TODO: handle exceptions here
+        putMVar v $ Awake dev  
+        return r
+
+autoSave :: BackgroundPlist -> IO ()
+autoSave bg@(BackgroundPlist n p v) = do
+  threadDelay (n * 1000 * 1000)
+  st <- takeMVar v
+  case st of
+    Sleeping -> putMVar v Sleeping
+    Awake dev -> do
+        -- assumes no one else is read/writing. The MVar BackgroundState is acting as a lock
+        d <- readIORef (plist_dirty dev)
+        (case d of
+          Nothing    -> return ()
+          Just True  -> send dev $ do { save ; exit } 
+          Just False -> send dev $ do { exit }) `finally` putMVar v Sleeping          
+        
 
