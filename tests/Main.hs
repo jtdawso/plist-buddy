@@ -64,7 +64,7 @@ guardPlistBuddyException m = m `catch` \ (PlistBuddyException msg) -> do
 main :: IO ()
 main = hspec $ do
   beforeAll clearDB $ do
-    describe "inital plist" $ modifyMaxSuccess (\ x -> 100) $ do
+    describe "initial plist" $ modifyMaxSuccess (\ x -> 100) $ do
 
       it "check initial dict is an dictionary" $ withPlistConnection False $ \ d -> do
         r0 <- send d $ get []
@@ -226,8 +226,22 @@ main = hspec $ do
             r <- get []
             exit
             return r
-          r0 `shouldBe` v            
+          r0 `shouldBe` v           
 
+      it "test double exit" $ 
+        property $ \ (DictValue v) (DictValue v') -> guardPlistBuddyException $ do
+          d <- openPlist "test.plist"
+          send d $ clear (Dict [])  -- clear dict
+          send d $ do
+            populateDict v
+            save
+            exit
+          d <- openPlist "test.plist"
+          r0 <- send d $ get []
+          send d $ exit
+          res <- (send d $ do { clear $ Dict [] ; populateDict v' ; return True}) 
+                     `catch` \ (e :: PlistBuddyException) -> do { return False }
+          (r0,res) `shouldBe` (v,False)
 
   beforeAll clearDB $ do
     describe "plist audit test" $ do  
@@ -272,8 +286,39 @@ main = hspec $ do
                 send d $ exit
                 r0 `shouldBe` target
 
+  beforeAll clearDB $ do
+    describe "auto-save plists" $ modifyMaxSuccess (\ x -> 3) $ do  
+      it "test bg save of DB, with changes in between" $ 
+        property $ noShrinking $ \ (DictValue v) (DictValue v') -> guardPlistBuddyException $ do
+          bg <- backgroundPlist 1 $ openPlist "test.plist"
+          bgSend bg $ clear (Dict [])  -- clear dict
+          bgSend bg $ do
+            populateDict v
+            save
+            clear $ Dict []
+            populateDict v'
+          threadDelay $ 2 * 1000 * 1000
+          -- the save should have automatically happened
+          d <- openPlist "test.plist"
+          r0 <- send d $ get []
+          send d $ exit
+          r0 `shouldBe` v'
 
-              
+      it "auto-restart" $ 
+        property $ noShrinking $ \ (DictValue v) (DictValue v') -> guardPlistBuddyException $ do
+          bg <- backgroundPlist 1 $ openPlist "test.plist"
+          bgSend bg $ clear (Dict [])  -- clear dict
+          bgSend bg $ do
+            populateDict v
+            save
+            clear $ Dict []
+            populateDict v'
+          threadDelay $ 2 * 1000 * 1000
+          -- the save should have automatically happened
+          r0 <- bgSend bg $ get []
+  --        bgSend bg $ exit
+          r0 `shouldBe` v'
+
 lastOf :: Value -> [(a,Value)] -> Value
 lastOf v xs = last (v : map snd xs)
 
