@@ -316,7 +316,7 @@ main = hspec $ do
           threadDelay $ 2 * 1000 * 1000
           -- the save should have automatically happened
           r0 <- bgSend bg $ get []
-  --        bgSend bg $ exit
+          bgSend bg $ exit
           r0 `shouldBe` v'
 
 lastOf :: Value -> [(a,Value)] -> Value
