@@ -33,6 +33,10 @@ module Database.PlistBuddy
         , recover
         , hashcode
         , findTrail
+         -- * Background version of Plist
+        , BackgroundPlist
+        , backgroundPlist
+        , bgSend
         ) where
 
 import Control.Concurrent
@@ -460,3 +464,32 @@ replay (Set p v)  = set p v
 replay (Add p v)  = add p v
 replay (Delete p) = delete p
 replay (Types.Start {}) = return ()
+
+
+--------------------------------------
+
+-- | This is a version of Plist that saves the database on regular occasions,
+--   and suspends itself when not used.
+data BackgroundPlist = BackgroundPlist Int (IO Plist) (MVar BackgroundState)
+
+data BackgroundState
+  = Sleeping
+  | Awake Plist
+
+-- | This creates a background Plist. The 'IO Plist' may be called many times.  
+backgroundPlist :: Int -> IO Plist -> IO BackgroundPlist
+backgroundPlist n p = do
+  v <- newMVar Sleeping
+  return $ BackgroundPlist n p v
+
+-- | Send a command to a background Plist.
+--   The semantics of bgSend is the same as saving after every command, provided you wait long enough
+bgSend :: BackgroundPlist -> PlistBuddy a -> IO a
+bgSend bg@(BackgroundPlist n p v) m = do
+  b <- p
+  send b $ do
+    r <- m
+    save
+    exit
+    return r
+
