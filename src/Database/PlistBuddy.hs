@@ -37,12 +37,14 @@ module Database.PlistBuddy
 
 import Control.Concurrent
 import Control.Concurrent.MVar
+import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Except
 
 import Data.Char (ord,isSpace,isDigit)
+import Data.IORef
 import Data.Text(Text)
 import qualified Data.Text as T
 import Data.Text.Encoding as E
@@ -79,11 +81,15 @@ debugOn :: Plist -> Plist
 debugOn p = p { plist_debug = True }
 
 send :: Plist -> PlistBuddy a -> IO a
-send dev (PlistBuddy m) = bracket (takeMVar lock)  (putMVar lock) $ \ () -> do
-        v <- runReaderT (runExceptT m) dev
-        case v of
-          Left (PlistError msg) -> fail  msg  -- an unhandled PlistError turns into an IO fail
-          Right val -> return val
+send dev (PlistBuddy m) = bracket (takeMVar lock) (putMVar lock) $ \ () -> do
+        d <- readIORef (plist_dirty dev)
+        case d of
+          Just {} -> do
+            v <- runReaderT (runExceptT m) dev
+            case v of
+              Left (PlistError msg) -> fail msg  -- an unhandled PlistError turns into an IO fail
+              Right val -> return val
+          Nothing -> throw $ PlistBuddyException $ "plist handle has been closed with exit"
   where lock = plist_lock dev
 
 -- | Returns Help Text
@@ -107,6 +113,7 @@ exit = do
         liftIO $ do
             closePty (plist_pty plist)
         debug ("done with exit, including closing pty")
+        liftIO $ writeIORef (plist_dirty plist) $ Nothing -- closed
         return ()
 
 -- | Saves the current changes to the file
@@ -115,9 +122,10 @@ save = do
         plist <- ask
         res <- liftIO $ command plist "Save"
         case res of
-          "Saving..." -> liftIO $ do
-                bs <- hashcode (plist_file plist)
+          "Saving..." -> do
+                bs <- liftIO $ hashcode (plist_file plist)
                 liftIO $ plist_trail plist $ Save bs
+                dirty False
                 return ()
           _ -> error $ "save failed: " <> show res
 
@@ -130,6 +138,7 @@ revert = do
         case res of
           "Reverting to last saved state..." -> do
             liftIO $ plist_trail plist Revert
+            dirty False
             return ()
           _ -> error $ "revert failed: " ++ show res
 
@@ -148,6 +157,7 @@ clear value = do
         case res of
           "Initializing Plist..." -> do
             liftIO $ plist_trail plist $ Clear value
+            dirty True
             return ()
           _  -> fail $ "add failed: " ++ show res
 
@@ -252,6 +262,7 @@ set entry (Array xs) = error "set: array not allowed"
 set entry value = do
         debug ("set",entry,value,valueType value)
         plist <- ask
+        dirty True
         res <- liftIO $ command plist $ "Set " <> BS.concat [ ":" <> quoteText e | e <- entry ]
                                       <> " " <> quoteValue value
         case res of
@@ -272,6 +283,7 @@ add entry (Array xs) | not (null xs) = error "add: array not empty"
 add entry value = do
         debug ("add",entry,value,valueType value)
         plist <- ask
+        dirty True
         res <- liftIO $ command plist $ "Add "  <> BS.concat [ ":" <> quoteText e | e <- entry ]
                                       <> " " <> valueType value <> " "
                                       <> quoteValue value
@@ -286,6 +298,7 @@ delete :: [Text] -> PlistBuddy ()
 delete entry = do
         debug ("delete",entry)
         plist <- ask
+        dirty True
         res <- liftIO $ command plist $ "delete " <>  BS.concat [ ":" <> quoteText e | e <- entry ]
         case res of
           "" -> do
@@ -298,6 +311,7 @@ importData :: [Text] -> ByteString -> Trail -> PlistBuddy ()
 importData entry d t = do
   debug ("import(add/set)",entry,d)
   plist <- ask
+  dirty True
   nm <- liftIO $ do
     (nm,h) <- openBinaryTempFile "/tmp" "plist-data-.tmp"
     BS.hPutStr h d -- write temp file with the binary data
@@ -320,6 +334,7 @@ mergeDate :: [Text] -> UTCTime -> Trail -> PlistBuddy ()
 mergeDate entry d t = do
   debug ("merge(set/get)",entry,d)
   plist <- ask
+  dirty True
   v <- get (init entry) -- 'orable way of doing this. Best of bad options
   case v of
     Dict env -> do
@@ -373,6 +388,12 @@ mergeDate entry d t = do
 
     _ -> error $ "add/set error for date; path type error"
   
+
+dirty :: Bool -> PlistBuddy ()
+dirty b = do
+  plist <- ask
+  liftIO $ writeIORef (plist_dirty plist) $ Just b
+
 
 {-                
 -- Not (yet) supported

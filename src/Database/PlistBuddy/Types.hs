@@ -24,6 +24,7 @@ import Control.Monad.Except
 
 import Data.Text(Text)
 import Data.ByteString (ByteString)
+import Data.IORef
 
 import System.Process
 import System.Posix.Pty
@@ -56,12 +57,13 @@ throwPlistError = throwError
 -- | The Remote Plist 
 data Plist = Plist 
   { plist_pty   :: Pty
-  , plist_lock  :: MVar ()
+  , plist_lock  :: MVar ()  
   , plist_proc  :: ProcessHandle
   , plist_debug :: Bool
   , plist_file  :: FilePath
-  , plist_trail :: Trail -> IO ()   -- audit information
-  , plist_launder :: IO ()          -- close audit without issuing an exit; for testing
+  , plist_trail :: Trail -> IO ()      -- audit information
+  , plist_launder :: IO ()             -- close audit without issuing an exit; for testing
+  , plist_dirty  :: IORef (Maybe Bool) -- if the database has been changed; Nothing == closed
   }
         
 ------------------------------------------------------------------------------

@@ -7,6 +7,7 @@ module Database.PlistBuddy.Open
 import Control.Concurrent
 import Control.Exception
 
+import Data.IORef
 import Database.PlistBuddy.Types
 import Database.PlistBuddy.Command
 
@@ -33,6 +34,7 @@ openPlist fileName = handleIOErrors $ do
     attr <- getTerminalAttributes pty
     setTerminalAttributes pty ((attr `withoutMode` EnableEcho) `withoutMode` ProcessInput) Immediately
     lock <- newMVar ()
-    return $ Plist pty lock ph False fileName (const $ return $ ()) (return ())
+    dirty <- newIORef $ Just False
+    return $ Plist pty lock ph False fileName (const $ return $ ()) (return ()) dirty
 
                 
