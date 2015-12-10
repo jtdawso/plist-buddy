@@ -477,7 +477,7 @@ data BackgroundState
   | Awake Plist
 
 -- | This creates a background Plist. The 'Int' argument is the number of seconds
--- to wait before sleeping the Plist. The 'IO Plist' may be called many times.  
+-- to wait before saveing and sleeping the Plist. The 'IO Plist' may be called many times.  
 backgroundPlist :: Int -> IO Plist -> IO BackgroundPlist
 backgroundPlist n p = do
   v <- newMVar Sleeping
