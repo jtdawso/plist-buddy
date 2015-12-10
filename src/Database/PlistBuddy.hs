@@ -37,6 +37,7 @@ module Database.PlistBuddy
         , BackgroundPlist
         , backgroundPlist
         , bgSend
+        , bgAutoSave
         ) where
 
 import Control.Concurrent
@@ -475,21 +476,24 @@ data BackgroundState
   = Sleeping
   | Awake Plist
 
--- | This creates a background Plist. The 'IO Plist' may be called many times.  
+-- | This creates a background Plist. The 'Int' argument is the number of seconds
+-- to wait before sleeping the Plist. The 'IO Plist' may be called many times.  
 backgroundPlist :: Int -> IO Plist -> IO BackgroundPlist
 backgroundPlist n p = do
   v <- newMVar Sleeping
   return $ BackgroundPlist n p v
 
 -- | Send a command to a background Plist.
---   The semantics of bgSend is the same as saving after every command, provided you wait long enough
+--   The semantics of bgSend is the same as saving after every command, provided you wait long enough.
 bgSend :: BackgroundPlist -> PlistBuddy a -> IO a
 bgSend bg@(BackgroundPlist n p v) m = do
   st <- takeMVar v
   case st of
     Sleeping -> do
         dev <- p
-        forkIO $ autoSave bg
+        forkIO $ do
+          threadDelay (n * 1000 * 1000)
+          bgAutoSave bg
         r <- send dev m -- TODO: handle exceptions here
         putMVar v $ Awake dev  
         return r
@@ -498,9 +502,9 @@ bgSend bg@(BackgroundPlist n p v) m = do
         putMVar v $ Awake dev  
         return r
 
-autoSave :: BackgroundPlist -> IO ()
-autoSave bg@(BackgroundPlist n p v) = do
-  threadDelay (n * 1000 * 1000)
+-- | Save (if needed) and exit. The BackgroundPlist goes to sleep. 
+bgAutoSave :: BackgroundPlist -> IO ()
+bgAutoSave bg@(BackgroundPlist n p v) = do
   st <- takeMVar v
   case st of
     Sleeping -> putMVar v Sleeping
