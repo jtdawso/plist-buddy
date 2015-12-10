@@ -41,7 +41,6 @@ module Database.PlistBuddy
 
 import Control.Concurrent
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
