@@ -59,6 +59,7 @@ test-suite test-plist-buddy
   main-is: Main.hs
   type: exitcode-stdio-1.0
   build-depends:       base >=4.7 && <4.9
+                     , directory >= 1.2 && < 1.3
                      , plist-buddy == 0.1.0.0
                      , bytestring == 0.10.*
                      , mtl >=2.2 && <2.3

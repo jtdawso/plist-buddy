@@ -19,6 +19,7 @@ import qualified System.IO as IO
 import System.Timeout
 import Control.Concurrent (threadDelay)
 import System.Mem
+import System.Directory (removeFile)
 
 import Data.List (sortBy, sort, nub, transpose,lookup)
 
@@ -32,11 +33,15 @@ clearAudit :: IO ()
 clearAudit = do
   TIO.writeFile "test.audit" ""  
 
-
 clearDB :: IO ()
 clearDB = do
   TIO.writeFile "test.plist" "{}" 
   TIO.writeFile "test.audit" ""  
+
+rmDB :: IO ()
+rmDB = do
+  removeFile "test.plist"
+  removeFile "test.audit"
 
 openConnection :: Bool -> IO Plist
 openConnection audit = do
@@ -63,6 +68,7 @@ guardPlistBuddyException m = m `catch` \ (PlistBuddyException msg) -> do
 
 main :: IO ()
 main = hspec $ do
+
   beforeAll clearDB $ do
     describe "initial plist" $ modifyMaxSuccess (\ x -> 100) $ do
 
@@ -285,6 +291,14 @@ main = hspec $ do
                 r0 <- send d $ get []
                 send d $ exit
                 r0 `shouldBe` target
+
+  beforeAll rmDB $ do
+    describe "create plists" $ do  
+      it "open non-existent plist" $ do
+       property $ do
+         d <- openPlist "test.plist"
+         r0 <- send d $ get []
+         r0 `shouldBe` Dict []
 
   beforeAll clearDB $ do
     describe "auto-save plists" $ modifyMaxSuccess (\ x -> 3) $ do  
