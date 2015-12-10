@@ -9,6 +9,7 @@ module Database.PlistBuddy.Command
 import Control.Exception
 import Control.Monad
 
+import Data.Word (Word8)
 import Data.Char (ord)
 import Database.PlistBuddy.Types
 
@@ -41,11 +42,12 @@ recvReply0 pty = readMe []
   where
     readMe rbs = do
             v <- myReadPty pty
-            testMe ( BS.filter (/= fromIntegral (ord '\r')) v : rbs)
+            testMe ( BS.filter (`notElem` toIgnore) v : rbs)
 
-    testMe rbs | "#\nCommand: Unrecognized Command\nCommand: " == bs
-               = return $ ""
-               | "Command: #\nUnrecognized Command\nCommand: " == bs
+    toIgnore :: [Word8]
+    toIgnore = BS.unpack "\r\n#"
+
+    testMe rbs | "Command: Unrecognized CommandCommand: " `isSuffixOf` rbs
                = return $ ""
                | otherwise
                = readMe rbs

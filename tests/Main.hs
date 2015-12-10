@@ -19,7 +19,7 @@ import qualified System.IO as IO
 import System.Timeout
 import Control.Concurrent (threadDelay)
 import System.Mem
-import System.Directory (removeFile)
+import System.Directory (removeFile, doesFileExist)
 
 import Data.List (sortBy, sort, nub, transpose,lookup)
 
@@ -40,8 +40,7 @@ clearDB = do
 
 rmDB :: IO ()
 rmDB = do
-  removeFile "test.plist"
-  removeFile "test.audit"
+  doesFileExist "test.plist" >>= \ b -> when b (removeFile "test.plist")
 
 openConnection :: Bool -> IO Plist
 openConnection audit = do
@@ -298,6 +297,7 @@ main = hspec $ do
        property $ do
          d <- openPlist "test.plist"
          r0 <- send d $ get []
+         send d $ exit
          r0 `shouldBe` Dict []
 
   beforeAll clearDB $ do
