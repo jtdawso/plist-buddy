@@ -22,6 +22,7 @@ import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.Except
 
+
 import Data.Text(Text)
 import Data.ByteString (ByteString)
 import Data.IORef
@@ -42,14 +43,14 @@ newtype PlistBuddy a = PlistBuddy (ExceptT PlistError (ReaderT Plist IO) a)
 newtype PlistError = PlistError String 
  deriving (Show, Eq)
 
--- | A version of `catchError` with the type specialized to PlistBuddy. Using
---   this will cause a static error if used on a non-PlistBuddy monad.
+-- | A version of 'catchError' with the type specialized to 'PlistBuddy'. Using
+--   this will cause a static error if used on a non-'PlistBuddy' monad.
 
 catchPlistError :: PlistBuddy a -> (PlistError -> PlistBuddy a) -> PlistBuddy a
 catchPlistError = catchError
 
--- | Throw a `PlistError`. Uncaught `PlistError` exceptions will
---   be thrown by `send` as IO Exceptions.
+-- | Throw a 'PlistError'. Uncaught 'PlistError' exceptions will
+--   be thrown by 'send' as IO Exceptions.
 
 throwPlistError :: PlistError -> PlistBuddy a
 throwPlistError = throwError

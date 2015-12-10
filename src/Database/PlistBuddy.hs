@@ -81,9 +81,11 @@ import System.IO.Error (catchIOError)
 
 ------------------------------------------------------------------------------
 
+-- | Generate a version of Plist that outputs debuging information.
 debugOn :: Plist -> Plist
 debugOn p = p { plist_debug = True }
 
+-- | Send the (remote) 'PlistBuddy' monad to given 'Plist'.
 send :: Plist -> PlistBuddy a -> IO a
 send dev (PlistBuddy m) = bracket (takeMVar lock) (putMVar lock) $ \ () -> do
         d <- readIORef (plist_dirty dev)

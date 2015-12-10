@@ -20,6 +20,7 @@ handleIOErrors :: IO a -> IO a
 handleIOErrors m =
   m `catchIOError` \ e -> throw $ PlistBuddyException $ "IO error, " ++ show e
 
+-- | Open a specific Plist, returning a Plist handle.
 openPlist :: FilePath -> IO Plist
 openPlist fileName = handleIOErrors $ do
     (pty,ph) <- spawnWithPty
