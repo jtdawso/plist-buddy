@@ -17,6 +17,7 @@ module Database.PlistBuddy.Types
         , AuditTrail(..)
         ) where
 
+import Control.Applicative
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.Reader
