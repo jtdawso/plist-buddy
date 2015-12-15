@@ -57,4 +57,4 @@ test-suite test-plist-buddy
 
 source-repository head
   type:     git
-  location: git://github.com/ku-fpg/plist-buddy.git
+  location: https://github.com/andygill/plist-buddy.git
