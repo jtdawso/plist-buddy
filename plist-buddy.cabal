@@ -47,7 +47,7 @@ test-suite test-plist-buddy
                      , bytestring == 0.10.*
                      , mtl >=2.2 && <2.3
                      , hspec
-                     , process >=1.2 && <1.5
+                     , process >=1.2 && <1.7
                      , posix-pty >= 0.2.1 && < 0.3
                      , QuickCheck >= 2.8 && < 3.0
                      , time      >= 1.5 && < 1.7
