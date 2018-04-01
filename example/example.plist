@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>APIBaseURL</key>
+	<string>http://example.com</string>
+	<key>Bool</key>
+	<true/>
+	<key>Date</key>
+	<date>2017-12-19T02:01:54Z</date>
+	<key>Dict</key>
+	<dict/>
+	<key>EnvironmentName</key>
+	<string>Dev</string>
+	<key>Integer</key>
+	<integer>5</integer>
+	<key>RTCICEServerURLs</key>
+	<array>
+		<string>stun:stun.example.com</string>
+		<string>turn:turn.example.com</string>
+	</array>
+	<key>Real </key>
+	<real>4.5</real>
+	<key>ServiceErrorDomain</key>
+	<string>http://error.example.com</string>
+	<key>String</key>
+	<string>tester</string>
+	<key>WebSocketAPIVersion</key>
+	<real>0.5</real>
+	<key>allAccessAPIURL</key>
+	<dict>
+		<key>ChatEndpoint</key>
+		<string>http://chat.example.com</string>
+		<key>ChatPort</key>
+		<integer>3015</integer>
+		<key>MappingEndpoint</key>
+		<string>http://example.com/map</string>
+	</dict>
+</dict>
+</plist>

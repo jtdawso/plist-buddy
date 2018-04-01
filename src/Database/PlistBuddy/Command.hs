@@ -1,4 +1,7 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 module Database.PlistBuddy.Command
         ( command
         , recvReply0
@@ -6,19 +9,19 @@ module Database.PlistBuddy.Command
         )
         where
 
-import Control.Exception
-import Control.Monad
+import           Control.Exception
+import           Control.Monad
 
-import Data.Word (Word8)
-import Data.Char (ord)
-import Database.PlistBuddy.Types
+import           Data.Char                 (ord)
+import           Data.Word                 (Word8)
+import           Database.PlistBuddy.Types
 
-import qualified Data.ByteString as BS
-import Data.ByteString (ByteString)
-import Data.Monoid ((<>))
+import           Data.ByteString           (ByteString)
+import qualified Data.ByteString           as BS
+import           Data.Monoid               ((<>))
 
-import System.Posix.Pty
-import System.Timeout
+import           System.Posix.Pty
+import           System.Timeout
 
 -- Single threaded; assumes a lock above it.
 command :: Plist -> ByteString -> IO ByteString
@@ -66,7 +69,7 @@ recvReply pty = readMe []
     testMe rbs | prompt `isSuffixOf` rbs
                = return $ BS.take (BS.length bs - BS.length prompt) bs
                | "Command: " == bs
-               = return $ ""
+               = return ""
                | otherwise
                = readMe rbs
       where
@@ -76,7 +79,7 @@ type RBS = [ByteString] -- reversed list of strict bytestring
 
 rbsToByteString :: RBS -> ByteString
 rbsToByteString = BS.concat . reverse
-          
+
 isSuffixOf :: ByteString -> RBS -> Bool
 isSuffixOf bs rbs = bs `BS.isSuffixOf` rbsToByteString rbs
 
@@ -87,8 +90,7 @@ myWritePty pty msg = do
       writePty pty msg
   case r of
     Just () -> return ()
-    Nothing -> do
-      throw $ PlistBuddyException "timeout when writing"
+    Nothing -> throw $ PlistBuddyException "timeout when writing"
 
 myReadPty :: Pty -> IO ByteString
 myReadPty pty = do
@@ -98,9 +100,7 @@ myReadPty pty = do
   case r of
     Just (Left {}) -> myReadPty pty
     Just (Right v) -> return v
-    Nothing        -> do
-      throw $ PlistBuddyException "timeout when reading"
+    Nothing        -> throw $ PlistBuddyException "timeout when reading"
 
 myTimeout :: IO a -> IO (Maybe a)
 myTimeout = timeout (1000 * 1000)
-
