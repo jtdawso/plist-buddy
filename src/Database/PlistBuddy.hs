@@ -42,6 +42,7 @@ import           Control.Monad.Reader
 import           Control.Natural
 import           Control.Remote.Monad
 import qualified Control.Remote.Packet.Weak as WP
+import qualified Control.Remote.Packet.Applicative as AP
 
 import           Data.Char                   (isDigit, isSpace, ord)
 import           Data.IORef
@@ -98,6 +99,7 @@ sendW dev (WP.Primitive (Get e)) = runReaderT (get' e) dev
 sendW dev (WP.Primitive (Set e v)) = runReaderT (set' e v) dev
 sendW dev (WP.Primitive (Add e v)) = runReaderT (add' e v) dev
 sendW dev (WP.Primitive (Delete e)) = runReaderT (delete' e) dev
+
 {-
 -- | Send the (remote) 'PlistBuddy' monad to given 'Plist'.
 send :: Plist -> PlistBuddy a -> IO a

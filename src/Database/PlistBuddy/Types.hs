@@ -36,12 +36,13 @@ import           Control.Concurrent
 import           Control.Exception
 import           Control.Monad.Except
 import           Control.Monad.Reader
-import           Control.Remote.Monad (KnownResult (..), RemoteMonad(..), primitive)
+import           Control.Remote.Monad (KnownResult (..), RemoteMonad (..),
+                                       primitive)
 
 
 import           Data.ByteString      (ByteString)
-import           Data.String          (IsString(..))
 import           Data.IORef
+import           Data.String          (IsString (..))
 import           Data.Text            (Text)
 
 import           System.Posix.Pty
